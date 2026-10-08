@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import com.clashclaude.game.audio.SoundBoard
@@ -17,6 +19,7 @@ import com.clashclaude.game.game.Outcome
 import com.clashclaude.game.ui.BattleScreen
 import com.clashclaude.game.ui.ClashTheme
 import com.clashclaude.game.ui.HomeScreen
+import com.clashclaude.game.ui.Sprites
 
 class MainActivity : ComponentActivity() {
     private lateinit var sounds: SoundBoard
@@ -25,6 +28,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val repo = DeckRepository(applicationContext)
+        // Baked sprite sheets and card art live in assets/sprites (see tools/baker).
+        Sprites.loader = { name ->
+            assets.open("sprites/$name.png").use { BitmapFactory.decodeStream(it) }?.asImageBitmap()
+        }
         sounds = SoundBoard(applicationContext).apply {
             soundOn = repo.soundOn
             musicOn = repo.musicOn

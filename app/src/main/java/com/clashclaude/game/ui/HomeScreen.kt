@@ -328,8 +328,8 @@ private fun ArenaBanner() {
             // River with a bridge down the middle.
             drawRect(Color(0xFF3D9BE0), Offset(w / 2 - tile * 0.7f, 0f), Size(tile * 1.4f, h))
             drawRect(Color(0xFFA9774A), Offset(w / 2 - tile * 0.9f, h * 0.55f), Size(tile * 1.8f, tile * 1.2f))
-            Pen(this, w * 0.2f, h * 0.62f, tile * 0.9f).tower(false, Color(0xFF3FA7FF), 1f, 0f, Pose())
-            Pen(this, w * 0.8f, h * 0.62f, tile * 0.9f).tower(false, Color(0xFFFF4B4B), -1f, 0f, Pose())
+            drawSprite("tower_princess", true, 1.57f, 0, w * 0.2f, h * 0.92f, tile * 0.95f)
+            drawSprite("tower_princess", false, 1.57f, 0, w * 0.8f, h * 0.92f, tile * 0.95f)
         }
         OutlinedText(
             "Training Camp",

@@ -14,4 +14,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ClashClaude"
-include(":app", ":engine")
+include(":app", ":engine", ":baker")
+project(":baker").projectDir = file("tools/baker")

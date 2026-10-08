@@ -7,6 +7,7 @@ import com.clashclaude.game.data.ProjectileStyle
 import com.clashclaude.game.data.TargetType
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
@@ -87,6 +88,11 @@ class Combatant(
     // Animation state, read by the renderer.
     /** +1 when facing right, -1 when facing left. */
     var faceX = if (team == Team.PLAYER) 1f else -1f
+    /**
+     * Direction the unit faces on the ground plane, in radians: 0 = east (+x), PI/2 = south (+y,
+     * toward the PLAYER side). Turns smoothly; the renderer picks a sprite direction from it.
+     */
+    var heading = if (team == Team.PLAYER) -PI.toFloat() / 2f else PI.toFloat() / 2f
     var moving = false
     /** Distance walked so far, drives the walk cycle. */
     var walkCycle = 0f
@@ -647,6 +653,7 @@ class Battle(
         c.aimY = t.y
         if (edgeDist(c, t) <= c.range) {
             if (abs(t.x - c.x) > 0.05f) c.faceX = if (t.x > c.x) 1f else -1f
+            turnToward(c, atan2(t.y - c.y, t.x - c.x), dt)
             c.lockedOn = true
             if (c.cooldown <= 0f) {
                 attack(c, t)
@@ -729,6 +736,18 @@ class Battle(
         c.moving = true
         c.walkCycle += step
         if (abs(dx) > 0.02f) c.faceX = if (dx > 0f) 1f else -1f
+        turnToward(c, atan2(dy, dx), dt)
+    }
+
+    /** Rotates [c]'s heading toward [angle] at a fixed turn rate. */
+    private fun turnToward(c: Combatant, angle: Float, dt: Float) {
+        var diff = angle - c.heading
+        while (diff > PI) diff -= (2 * PI).toFloat()
+        while (diff < -PI) diff += (2 * PI).toFloat()
+        val maxTurn = TURN_RATE * dt
+        c.heading += diff.coerceIn(-maxTurn, maxTurn)
+        if (c.heading > PI) c.heading -= (2 * PI).toFloat()
+        if (c.heading < -PI) c.heading += (2 * PI).toFloat()
     }
 
     private fun attack(c: Combatant, t: Combatant) {
@@ -956,11 +975,15 @@ class Battle(
         spells.removeAll { it.done }
     }
 
-    /** Freeze: enemy troops in the area stop dead (no moving, no attacking) for the duration. */
+    /**
+     * Freeze: every enemy in the area, troops, buildings and towers alike, stops dead (no moving,
+     * no attacking) for the duration, and takes the spell's damage.
+     */
     private fun freezeArea(s: SpellCast) {
         for (e in entities) {
-            if (e.team == s.team || !e.alive || e.kind != Kind.TROOP) continue
+            if (e.team == s.team || !e.alive) continue
             if (hypot(e.x - s.tx, e.y - s.ty) - e.radius > s.card.spellRadius) continue
+            if (s.card.damage > 0) damage(e, if (e.isTower) s.card.damage * s.card.towerDamagePct else s.card.damage.toFloat())
             e.stunTimer = max(e.stunTimer, s.card.freeze)
             e.frozenTimer = max(e.frozenTimer, s.card.freeze)
             e.rampTime = 0f
@@ -997,6 +1020,7 @@ class Battle(
             add(Combatant.fromCard(card, c.team, x, y).apply {
                 deployTimer = 0.3f
                 faceX = c.faceX
+                heading = c.heading
             })
         }
         effects += Effect(EffectKind.PUFF, c.x, c.y, c.radius * 1.4f, 0xAA9E9E9E, 0.35f)
@@ -1047,6 +1071,9 @@ class Battle(
 
         /** Length of one simulation tick ([step]): 30 ticks per second. */
         const val TICK_SECONDS = 1f / 30f
+
+        /** How fast units turn to face where they walk or attack, radians per second. */
+        const val TURN_RATE = 9f
 
         fun edgeDist(a: Combatant, b: Combatant): Float =
             hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius

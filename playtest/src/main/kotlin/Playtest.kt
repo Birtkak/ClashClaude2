@@ -7,11 +7,8 @@ import com.clashclaude.game.data.DeckRepository
 import com.clashclaude.game.ui.BattleScreen
 import com.clashclaude.game.ui.ClashTheme
 import com.clashclaude.game.ui.HomeScreen
-import com.clashclaude.game.ui.Pen
-import com.clashclaude.game.ui.Pose
-import com.clashclaude.game.ui.spellIcon
-import com.clashclaude.game.ui.tower
-import com.clashclaude.game.ui.unit
+import com.clashclaude.game.ui.Sprites
+import com.clashclaude.game.ui.drawSprite
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
@@ -97,6 +94,7 @@ private class Driver(val scene: ImageComposeScene, val outDir: File) {
 
 fun main(args: Array<String>) {
     val out = File(args.getOrElse(0) { "build/playtest" }).apply { mkdirs() }
+    installDesktopSprites()
     val density = Density(2.75f)
 
     for ((i, name) in listOf("battle", "deck", "more").withIndex()) {
@@ -107,30 +105,24 @@ fun main(args: Array<String>) {
         home.close()
     }
 
-    // Sprite sheet: every card in idle, walk and attack poses, plus both towers.
+    // Sprite gallery: every baked sheet in a few facings and frames, both teams, plus the towers.
     val gallery = ImageComposeScene(W, H, density) {
-        Canvas(Modifier.fillMaxSize().background(Color(0xFF6DBE45))) {
-            val cell = size.width / 6f
-            Cards.all.forEachIndexed { i, card ->
-                val col = (i % 2) * 3
-                val row = i / 2
-                val y = cell * 0.6f * (row + 1) + 10f
-                for (p in 0 until 3) {
-                    val pose = when (p) {
-                        0 -> Pose(time = 0.2f)
-                        1 -> Pose(walk = 1.2f, moving = true, time = 0.5f)
-                        else -> Pose(swing = -0.6f, recoil = 0.8f, aim = -0.3f, time = 0.8f)
-                    }
-                    val x = cell * (col + p + 0.5f)
-                    if (card.type == CardType.SPELL) {
-                        Pen(this, x, y - cell * 0.3f, cell * 0.45f).spellIcon(card.id, p * 0.3f)
-                    } else {
-                        Pen(this, x, y, cell * 0.5f).unit(card.id, if (p == 2) Color(0xFFFF4B4B) else Color(0xFF3FA7FF), pose)
-                    }
+        Canvas(Modifier.fillMaxSize().background(Color(0xFF79C24E))) {
+            val ids = listOf("knight", "archers", "giant", "wizard", "skeletons", "minions", "cannon", "kingtop")
+            val tile = 70f
+            ids.forEachIndexed { i, id ->
+                val sheet = Sprites.sheet(id) ?: return@forEachIndexed
+                val y = 150f + i * 190f
+                val cols = listOf(0, sheet.idle + 2, sheet.idle + sheet.walk + 1, sheet.idle + sheet.walk + 3)
+                val headings = listOf(1.57f, 0f, -1.57f, 3.14f)
+                var x = 60f
+                for (blue in listOf(true, false)) for ((k, h) in headings.withIndex()) {
+                    drawSprite(id, blue, h, cols[k % cols.size], x, y, tile)
+                    x += 125f
                 }
             }
-            Pen(this, cell * 1.5f, size.height - cell * 1.6f, cell * 0.5f).tower(false, Color(0xFF3FA7FF), 1f, -1f, Pose())
-            Pen(this, cell * 4.5f, size.height - cell * 1.6f, cell * 0.5f).tower(true, Color(0xFFFF4B4B), -1f, 1f, Pose(recoil = 1f))
+            drawSprite("tower_princess", true, 1.57f, 0, 220f, H - 120f, tile)
+            drawSprite("tower_king", false, 1.57f, 0, 650f, H - 120f, tile)
         }
     }
     Driver(gallery, out).screenshot("00-gallery")
@@ -155,6 +147,12 @@ fun main(args: Array<String>) {
     d.wait(0.35f)
     d.screenshot("03b-dropping")
 
+    // Select a card, then press on the arena and slide: the ghost follows the finger until release.
+    d.wait(4f)
+    d.tap(handX[1], HAND_Y)
+    d.drag(400f, 1450f, 760f, 1600f, shot = "03c-hover-ghost")
+    d.wait(0.3f)
+
     // Drag a card deep into enemy territory: troops should snap back to our side of the river.
     for (round in 0 until 4) {
         d.wait(5f)
@@ -176,8 +174,8 @@ private fun stagedFight(
     name: String = "07-fight",
 ) {
     fun deck(vararg ids: String) = ids.map { Cards.get(it)!! }
-    val player = deck("wizard", "archers", "knight", "valkyrie", "musketeer", "minions", "bomber", "babydragon")
-    val enemy = deck("giant", "barbarians", "minions", "goblins", "hogrider", "pekka", "speargoblins", "skeletons")
+    val player = deck("wizard", "archers", "knight", "skeletons", "giant", "minions", "fireball", "zap")
+    val enemy = deck("giant", "knight", "minions", "skeletons", "archers", "wizard", "fireball", "zap")
     val battle = com.clashclaude.game.game.Battle(player, enemy, kotlin.random.Random(7))
     fun put(team: com.clashclaude.game.game.Team, id: String, x: Float, y: Float) {
         val side = battle.side(team)
@@ -190,13 +188,13 @@ private fun stagedFight(
     val P = com.clashclaude.game.game.Team.PLAYER
     val E = com.clashclaude.game.game.Team.ENEMY
     put(E, "giant", 3.5f, 11f)
-    put(E, "barbarians", 4.5f, 13f)
+    put(E, "knight", 4.5f, 13f)
     put(E, "minions", 6f, 12f)
+    put(E, "skeletons", 2.5f, 13f)
     put(P, "wizard", 4f, 24f)
-    put(P, "valkyrie", 3.5f, 20.5f)
+    put(P, "knight", 3.5f, 20.5f)
     put(P, "archers", 6f, 23f)
-    put(P, "bomber", 2f, 23f)
-    put(P, "babydragon", 6.5f, 21f)
+    put(P, "minions", 6.5f, 21f)
     battle.enemy.elixir = 0f
     battle.player.elixir = 0f
 
@@ -215,11 +213,11 @@ private fun stagedFight(
     scene.close()
 }
 
-/** The newer cards together: Inferno, Tombstone, Witch vs Giant, Mega Minion, Royal Giant, then a Freeze. */
+/** Spells on towers and a Cannon: Freeze on a princess tower, Zap on the other, Fireball on troops. */
 private fun stagedNewCards(out: File, density: Density) {
     fun deck(vararg ids: String) = ids.map { Cards.get(it)!! }
-    val player = deck("infernotower", "tombstone", "witch", "freeze", "lightning", "knight", "archers", "zap")
-    val enemy = deck("giant", "megaminion", "royalgiant", "goblins", "hogrider", "pekka", "speargoblins", "skeletons")
+    val player = deck("cannon", "freeze", "zap", "fireball", "knight", "archers", "giant", "skeletons")
+    val enemy = deck("giant", "knight", "wizard", "skeletons", "archers", "minions", "fireball", "zap")
     val battle = com.clashclaude.game.game.Battle(player, enemy, kotlin.random.Random(9))
     val P = com.clashclaude.game.game.Team.PLAYER
     val E = com.clashclaude.game.game.Team.ENEMY
@@ -231,19 +229,20 @@ private fun stagedNewCards(out: File, density: Density) {
         side.elixir = 0f
     }
     put(E, "giant", 4f, 12f)
-    put(E, "megaminion", 6f, 12f)
-    put(E, "royalgiant", 3f, 9f)
-    put(P, "infernotower", 6f, 22f)
-    put(P, "tombstone", 9f, 24f)
-    put(P, "witch", 6.5f, 25.5f)
+    put(E, "wizard", 5.5f, 9f)
+    put(P, "cannon", 6f, 22f)
+    put(P, "giant", 14.5f, 18.5f)
+    put(P, "archers", 13.5f, 22.5f)
     val scene = ImageComposeScene(W, H, density) { ClashTheme(DisplayFont) { BattleScreen(player, initialBattle = battle) {} } }
     val d = Driver(scene, out)
-    d.wait(9f)
+    d.wait(7f)
     d.screenshot("08-new-cards-1")
-    put(P, "freeze", 4.5f, 17.5f)
-    d.wait(1f)
+    put(P, "freeze", 14.5f, 6f)
+    put(P, "zap", 3.5f, 6f)
+    d.wait(0.6f)
     d.screenshot("08-new-cards-2-freeze")
-    d.wait(4f)
+    put(P, "fireball", 4.5f, 13f)
+    d.wait(0.5f)
     d.screenshot("08-new-cards-3")
     scene.close()
 }

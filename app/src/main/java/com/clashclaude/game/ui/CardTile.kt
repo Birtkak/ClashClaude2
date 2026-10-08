@@ -89,36 +89,29 @@ fun CardTile(
     }
 }
 
-/** The unit (or spell) drawn as the card's portrait; multi-unit cards show a small group. */
+/** The card's portrait, baked from its 3D model (tools/baker); a vector icon if it isn't available. */
 @Composable
 fun CardArt(card: CardDef, modifier: Modifier = Modifier) {
     Canvas(modifier) {
+        val img = Sprites.image("card_${card.id}")
+        if (img != null) {
+            // Fill the width, keeping the aspect ratio, anchored to the bottom like a card illustration.
+            val w = size.width
+            val h = w * img.height / img.width
+            drawImage(
+                img,
+                dstOffset = androidx.compose.ui.unit.IntOffset(0, (size.height - h).toInt()),
+                dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt()),
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
+            )
+            return@Canvas
+        }
         val w = size.width
         val h = size.height
         if (card.type == CardType.SPELL) {
             Pen(this, w * 0.5f, h * 0.42f, w * 0.62f).spellIcon(card.id, 0f)
-            return@Canvas
-        }
-        val tint = Color(0xFF3FA7FF)
-        val big = card.id == "giant" || card.id == "pekka"
-        val feetY = h * 0.74f
-        when {
-            card.count >= 3 -> {
-                val u = h * 0.36f
-                Pen(this, w * 0.3f, feetY - h * 0.1f, u * 0.9f).unit(card.id, tint, Pose.IDLE)
-                Pen(this, w * 0.72f, feetY - h * 0.1f, u * 0.9f).unit(card.id, tint, Pose.IDLE)
-                Pen(this, w * 0.5f, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
-            }
-            card.count == 2 -> {
-                val u = h * 0.42f
-                Pen(this, w * 0.33f, feetY - h * 0.04f, u * 0.92f).unit(card.id, tint, Pose.IDLE)
-                Pen(this, w * 0.64f, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
-            }
-            else -> {
-                val u = h * if (big) 0.6f else if (card.type == CardType.BUILDING) 0.48f else 0.54f
-                val x = w * if (card.id == "hogrider") 0.45f else 0.5f
-                Pen(this, x, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
-            }
+        } else {
+            Pen(this, w * 0.5f, h * 0.45f, w * 0.3f).circle(0f, 0f, 1f, Color(0xFF3FA7FF))
         }
     }
 }

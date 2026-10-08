@@ -11,7 +11,9 @@ class DeckRepository(context: Context) {
         if (stored == null) {
             Cards.defaultDecks[i]
         } else {
-            stored.split(",").filter { Cards.get(it) != null }.distinct().take(DECK_SIZE)
+            val deck = stored.split(",").filter { Cards.get(it) != null }.distinct().take(DECK_SIZE)
+            // Decks saved before cards were removed fall back to the default deck.
+            if (deck.size < DECK_SIZE) Cards.defaultDecks[i] else deck
         }
     }
 

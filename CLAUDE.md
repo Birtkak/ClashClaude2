@@ -1,8 +1,10 @@
 # Clash Claude
 
 Clash Royale-style Android game: Kotlin + Jetpack Compose. Modules: `:engine` (plain Kotlin game
-simulation and card data, shared with a future server) and `:app` (Android UI, audio, storage).
-See README.md for gameplay, layout and build commands, and docs/MULTIPLAYER.md for the server plan.
+simulation and card data, shared with a future server), `:app` (Android UI, audio, storage) and
+`:baker` (tools/baker: renders 3D models to the sprite sheets the game draws).
+See README.md for gameplay, layout and build commands, docs/MULTIPLAYER.md for the server plan and
+docs/ART_PIPELINE.md for the art pipeline.
 
 ## Checks before pushing
 
@@ -12,6 +14,8 @@ See README.md for gameplay, layout and build commands, and docs/MULTIPLAYER.md f
   `playtest/build/playtest/*.png` (sprite gallery, battle, drag ghost, staged fight); look at them
   after any UI or art change.
 - `cd playtest && ../gradlew simulate` runs 40 AI matches; `stuckTroops` must stay 0.
+- After changing models or `View`: `./gradlew :baker:bake` (commit the regenerated `assets/sprites` and
+  `SpriteManifest.kt`) and `./gradlew :baker:test`.
 - The `:engine` module can't use Android at all. `app/.../ui/` must not use Android APIs beyond what
   `playtest/src/main/kotlin/stubs` stubs; Android-only code lives in `audio/`, `MainActivity` and `DeckRepository`.
 - Keep the engine multiplayer-ready (see docs/MULTIPLAYER.md): only `battle.rng` for randomness,
@@ -32,8 +36,9 @@ https://claude.ai/artifact/BUm139CyGUeFVq3daoNyJw
 - Status flow, written back with ArtifactData `update` (pin `if_version`):
   `new` (submitted) -> `building` -> `added` (shipped), or `needs-info` with a question in `claudeNote`.
   Put a short note in `claudeNote` when shipping (what changed, any stat tweaks).
-- Building a card means: a `CardDef` in `Cards.kt`, sprite art in `ui/Art.kt` (`Pen.unit` branch and,
-  if needed, `spriteTop`), sounds via existing `Sfx` or new ones in `tools/make_sounds.py`, any new
+- Building a card means: a `CardDef` in `Cards.kt`, a 3D model with the card's id in
+  `tools/baker/.../Models.kt` (or a Blender export at `models/<id>.glb`, see docs/ART_PIPELINE.md) baked
+  with `./gradlew :baker:bake -Ponly=<id>`, sounds via existing `Sfx` or new ones in `tools/make_sounds.py`, any new
   mechanic in `engine/.../game/Battle.kt` with a unit test in `engine/src/test`, and AI support if the card needs special handling.
 - After changing card stats, rebuild the forge page (`python3 tools/card-forge/build.py`) and republish
   `tools/card-forge/card-forge.html` to the URL above so its balance panel stays current.

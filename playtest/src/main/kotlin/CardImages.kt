@@ -13,6 +13,7 @@ import java.io.File
 
 fun main(args: Array<String>) {
     val out = File(args.getOrElse(0) { "build/card-images" }).apply { mkdirs() }
+    installDesktopSprites()
     for (card in Cards.all) {
         val scene = ImageComposeScene(234, 300, Density(2f)) {
             ClashTheme { CardTile(card, Modifier.fillMaxSize()) }

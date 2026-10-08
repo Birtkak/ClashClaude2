@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +84,8 @@ fun BattleScreen(
     var selected by remember { mutableIntStateOf(-1) }
     var dragIndex by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
+    // Hand drags hold the ghost a tile above the finger; hovering on the arena puts it right under it.
+    var dragLift by remember { mutableStateOf(true) }
     var confirmLeave by remember { mutableStateOf(false) }
     // Short message shown over the arena, e.g. "Not enough elixir", until battle time `second`.
     var notice by remember { mutableStateOf<Pair<String, Float>?>(null) }
@@ -90,6 +94,11 @@ fun BattleScreen(
     val cardOrigins = remember { Array(4) { Offset.Zero } }
 
     LaunchedEffect(match) {
+        // Decode every sheet this match can show before the first frame.
+        Sprites.preload(
+            (battle.player.hand + battle.player.queue + battle.enemy.hand + battle.enemy.queue).map { it.id } +
+                listOf("tower_princess", "tower_king", "archers", "kingtop"),
+        )
         audio.music(true)
         var fastMusic = false
         var last = withFrameNanos { it }
@@ -142,7 +151,8 @@ fun BattleScreen(
      */
     fun dragSpot(card: CardDef): Pair<Float, Float>? {
         if (!inArena(dragPos)) return null
-        val lifted = Offset(dragPos.x, dragPos.y - DRAG_LIFT_TILES * transform.scale)
+        if (!dragLift) return dropSpot(card, dragPos)
+        val lifted = Offset(dragPos.x, dragPos.y - DRAG_LIFT_TILES * transform.depth)
         return dropSpot(card, if (inArena(lifted)) lifted else dragPos)
     }
 
@@ -185,10 +195,27 @@ fun BattleScreen(
                         transform.fit(it.size.width.toFloat(), it.size.height.toFloat())
                     }
                     .pointerInput(Unit) {
-                        detectTapGestures { pos ->
+                        // With a card selected, press anywhere on the arena to show its ghost there,
+                        // slide to adjust, and release to place it. A plain tap places it at once.
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
                             val i = selected
-                            val card = me.hand.getOrNull(i)
-                            if (card != null && tryDeploy(i, dropSpot(card, pos + transform.originInRoot))) selected = -1
+                            if (me.hand.getOrNull(i) == null) return@awaitEachGesture
+                            down.consume()
+                            dragLift = false
+                            dragIndex = i
+                            dragPos = down.position + transform.originInRoot
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    val card = me.hand.getOrNull(i)
+                                    if (card != null && tryDeploy(i, dragSpot(card))) selected = -1
+                                    break
+                                }
+                                dragPos = change.position + transform.originInRoot
+                                change.consume()
+                            }
+                            dragIndex = -1
                         }
                     },
             ) {
@@ -234,6 +261,7 @@ fun BattleScreen(
                 },
                 onCardPositioned = { i, pos -> cardOrigins[i] = pos },
                 onDragStart = { i, offset ->
+                    dragLift = true
                     dragIndex = i
                     selected = -1
                     dragPos = cardOrigins[i] + offset

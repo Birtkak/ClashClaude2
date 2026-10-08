@@ -90,3 +90,16 @@ class MultiplayerTest {
         assertTrue(alpha in 0f..1f)
     }
 }
+
+class ViewTest {
+    @Test
+    fun headingsMapToBakedRows() {
+        val pi = Math.PI.toFloat()
+        assertEquals(0 to false, View.direction(pi / 2)) // facing the camera
+        assertEquals(4 to false, View.direction(0f)) // facing right
+        assertEquals(8 to false, View.direction(-pi / 2)) // facing away
+        assertEquals(4 to true, View.direction(pi)) // facing left = mirrored right
+        assertEquals(2 to true, View.direction(3 * pi / 4)) // down-left = mirrored down-right
+        for (row in 0 until View.DIRECTIONS) assertEquals(row to false, View.direction(View.headingOfRow(row)))
+    }
+}
