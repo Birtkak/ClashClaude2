@@ -1,0 +1,717 @@
+<title>Card Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@400;600;800&display=swap">
+<style>
+/* Layout: a blacksmith's workbench. Left: the order form. Right (sticky): the card as it
+   will look in the hand, plus the cards it has to compete with. Below: the forge queue. */
+:root {
+  --night: #0d1830;
+  --panel: #16284a;
+  --raised: #1f3863;
+  --line: #2f4c80;
+  --text: #eef3ff;
+  --dim: #a7b6d8;
+  --gold: #ffc93c;
+  --gold-deep: #e09a00;
+  --gold-ink: #3a2600;
+  --elixir: #d43bff;
+  --elixir-deep: #7b1fa2;
+  --sent: #6fb7ff;
+  --building: #ffc93c;
+  --added: #5ee08a;
+  --question: #ff8a65;
+  --danger: #ff6b6b;
+  --display: "Lilita One", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--night); color: var(--text); }
+body {
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.45;
+  padding-inline: 16px;
+  padding-block: 20px 48px;
+  background:
+    radial-gradient(1200px 500px at 70% -10%, #23407a 0%, transparent 60%),
+    var(--night);
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 22px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 400; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(30px, 6vw, 44px); color: var(--gold); text-shadow: 0 3px 0 #7a4f00; }
+h2 { font-size: 22px; }
+h3 { font-size: 17px; }
+p { margin: 0; }
+.lede { color: var(--dim); max-width: 62ch; }
+
+header { display: grid; gap: 8px; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.step { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 12px 6px 6px; font-size: 13px; color: var(--dim); }
+.step b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--gold); color: var(--gold-ink); font-size: 12px; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
+@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } .side { position: static !important; order: -1; } }
+
+form, .side > section, .queue { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+form { padding: 18px; display: grid; gap: 18px; min-width: 0; }
+.group { display: grid; gap: 12px; }
+.group + .group { border-top: 1px dashed var(--line); padding-top: 18px; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+label, .label { display: grid; gap: 6px; font-weight: 800; font-size: 13px; color: var(--dim); letter-spacing: 0.02em; }
+.hint { font-weight: 400; color: var(--dim); font-size: 12px; opacity: 0.85; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; font: inherit; font-weight: 600; color: var(--text); background: var(--night);
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 11px; min-width: 0;
+}
+textarea { min-height: 76px; resize: vertical; }
+input::placeholder, textarea::placeholder { color: #6c7fa8; font-weight: 400; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, .chip:focus-within {
+  outline: 2px solid var(--gold); outline-offset: 2px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { position: relative; }
+.chip input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.chip span { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; border: 1.5px solid var(--line);
+  background: var(--night); font-weight: 800; color: var(--dim); cursor: pointer; user-select: none; }
+.chip input:checked + span { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); }
+.chip.rarity input:checked + span { color: #fff; border-color: transparent; }
+.chip.common input:checked + span { background: linear-gradient(#5c7aa8, #34507c); }
+.chip.rare input:checked + span { background: linear-gradient(#f0a040, #b0601a); }
+.chip.epic input:checked + span { background: linear-gradient(#b05ce0, #6a2a9a); }
+.chip.legendary input:checked + span { background: linear-gradient(120deg, #4dd0e1, #b388ff 50%, #ffd54f); color: #1b1030; }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); font-size: 14px; }
+.check input { width: 18px; height: 18px; accent-color: var(--gold); }
+
+.elixir { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.drop { width: 46px; height: 52px; display: grid; place-items: center; font-family: var(--display); font-size: 24px; color: #fff;
+  background: radial-gradient(circle at 40% 55%, var(--elixir), var(--elixir-deep)); border: 2px solid #f3c6ff;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; text-shadow: 0 2px 0 #4a0e66; }
+input[type=range] { width: 100%; accent-color: var(--elixir); }
+.ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; padding-inline: 2px; }
+
+.drop-zone { border: 2px dashed var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; text-align: center; color: var(--dim); }
+.drop-zone.over { border-color: var(--gold); background: #1b2f57; }
+.drop-zone button { justify-self: center; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.thumb { position: relative; width: 74px; height: 74px; border-radius: 10px; overflow: hidden; border: 1.5px solid var(--line); background: var(--night); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0;
+  background: #000a; color: #fff; font-weight: 800; cursor: pointer; line-height: 1; }
+.thumb.loading::after { content: "…"; position: absolute; inset: 0; display: grid; place-items: center; background: #0008; font-size: 22px; }
+
+button { font: inherit; cursor: pointer; }
+.btn { border: 0; border-radius: 12px; padding: 10px 16px; font-weight: 800; background: var(--raised); color: var(--text); border: 1.5px solid var(--line); }
+.btn:hover { border-color: var(--dim); }
+.btn.primary { font-family: var(--display); font-size: 21px; font-weight: 400; letter-spacing: 0.02em; padding: 12px 22px;
+  background: linear-gradient(#ffd866, var(--gold) 45%, var(--gold-deep)); color: var(--gold-ink); border: 0; box-shadow: 0 4px 0 #9a6400; }
+.btn.primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #9a6400; }
+.btn.primary[disabled] { filter: grayscale(0.8); opacity: 0.6; cursor: not-allowed; }
+.btn.ghost { background: transparent; }
+.btn.small { padding: 6px 10px; font-size: 13px; border-radius: 9px; }
+.btn.danger { color: var(--danger); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.status-line { font-size: 13px; color: var(--dim); min-height: 1.4em; }
+.status-line.error { color: var(--danger); }
+.status-line.ok { color: var(--added); }
+
+.side { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); display: grid; gap: 16px; min-width: 0; }
+.side > section { padding: 16px; display: grid; gap: 12px; }
+.preview-stage { display: grid; place-items: center; padding: 10px 0 4px; }
+
+/* The card as it appears in the game's hand. */
+.card { width: 168px; aspect-ratio: 0.78; border-radius: 16px; position: relative; overflow: hidden;
+  border: 2px solid #ffffff55; box-shadow: 0 10px 24px #0008; background: linear-gradient(#5c7aa8, #34507c); }
+.card.rare { background: linear-gradient(#f0a040, #b0601a); }
+.card.epic { background: linear-gradient(#b05ce0, #6a2a9a); }
+.card.legendary { background: linear-gradient(140deg, #4dd0e1, #7e57c2 55%, #ffb300); }
+.card .art { position: absolute; inset: 0 0 22% 0; display: grid; place-items: center; }
+.card .art img { width: 100%; height: 100%; object-fit: cover; }
+.card .art svg { width: 58%; height: 58%; opacity: 0.85; }
+.card .cost { position: absolute; top: 6px; left: 6px; width: 40px; height: 44px; font-size: 22px; }
+.card .name { position: absolute; left: 0; right: 0; bottom: 0; padding: 7px 8px; background: #00000070; text-align: center;
+  font-family: var(--display); font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .count { position: absolute; top: 8px; right: 8px; background: #000a; border-radius: 8px; padding: 1px 7px; font-weight: 800; font-size: 13px; }
+.card.mini { width: 74px; border-radius: 10px; border-width: 1.5px; }
+.card.mini .cost { width: 24px; height: 27px; font-size: 13px; top: 3px; left: 3px; border-width: 1.5px; }
+.card.mini .name { font-size: 10px; padding: 3px 4px; }
+.card.mini .count { font-size: 10px; top: 4px; right: 4px; padding: 0 4px; }
+
+.statline { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.stat { background: var(--night); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px; font-weight: 700; color: var(--dim); }
+.stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.compare { display: grid; gap: 6px; }
+.compare-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 8px; background: var(--night); }
+.compare-row span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+.compare-empty { font-size: 13px; color: var(--dim); }
+
+.queue { padding: 18px; display: grid; gap: 14px; }
+.queue-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--dim); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.concepts { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.concept { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; background: var(--night); border: 1px solid var(--line);
+  border-left: 4px solid var(--sent); border-radius: 12px; padding: 12px; }
+.concept[data-status=building] { border-left-color: var(--building); }
+.concept[data-status=added] { border-left-color: var(--added); }
+.concept[data-status=needs-info] { border-left-color: var(--question); }
+.concept .body { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.concept h3 { overflow-wrap: anywhere; }
+.meta { font-size: 12px; color: var(--dim); }
+.pill { justify-self: start; font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
+  color: #0d1830; background: var(--sent); }
+.pill.building { background: var(--building); }
+.pill.added { background: var(--added); }
+.pill.needs-info { background: var(--question); }
+.reply { font-size: 13px; background: var(--raised); border-radius: 10px; padding: 8px 10px; overflow-wrap: anywhere; }
+.reply b { color: var(--gold); }
+.concept .actions { gap: 6px; }
+.empty { text-align: center; color: var(--dim); padding: 28px 12px; border: 2px dashed var(--line); border-radius: 12px; display: grid; gap: 6px; }
+.empty strong { font-family: var(--display); font-weight: 400; font-size: 19px; color: var(--text); }
+.notice { font-size: 13px; color: var(--question); }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Card Forge</h1>
+    <p class="lede">Describe a card for Clash Claude. Leave any stat blank and Claude will balance it against the cards already in the game.</p>
+    <div class="steps" aria-label="How it works">
+      <span class="step"><b>1</b>Describe the card</span>
+      <span class="step"><b>2</b>Send it to the forge</span>
+      <span class="step"><b>3</b>Tell Claude “build the new cards”</span>
+      <span class="step"><b>4</b>Watch its status change below</span>
+    </div>
+  </header>
+
+  <div class="bench">
+    <form id="forge" novalidate>
+      <div class="group">
+        <h2 id="form-title">New card</h2>
+        <label>Card name
+          <input id="name" type="text" maxlength="28" placeholder="e.g. Ice Golem" autocomplete="off">
+        </label>
+        <div class="label">Card type
+          <div class="chips" role="radiogroup" aria-label="Card type">
+            <label class="chip"><input type="radio" name="type" id="type-troop" value="troop" checked><span>Troop</span></label>
+            <label class="chip"><input type="radio" name="type" id="type-spell" value="spell"><span>Spell</span></label>
+            <label class="chip"><input type="radio" name="type" id="type-building" value="building"><span>Building</span></label>
+          </div>
+        </div>
+        <div class="label">Elixir cost
+          <div class="elixir">
+            <div class="drop" id="cost-drop" aria-hidden="true">3</div>
+            <div>
+              <input id="cost" type="range" min="1" max="10" step="1" value="3" aria-label="Elixir cost">
+              <div class="ticks" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="label">Rarity
+          <div class="chips" role="radiogroup" aria-label="Rarity">
+            <label class="chip rarity common"><input type="radio" name="rarity" id="rarity-common" value="common" checked><span>Common</span></label>
+            <label class="chip rarity rare"><input type="radio" name="rarity" id="rarity-rare" value="rare"><span>Rare</span></label>
+            <label class="chip rarity epic"><input type="radio" name="rarity" id="rarity-epic" value="epic"><span>Epic</span></label>
+            <label class="chip rarity legendary"><input type="radio" name="rarity" id="rarity-legendary" value="legendary"><span>Legendary</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="group" id="unit-stats">
+        <h3>How it fights</h3>
+        <div class="row">
+          <label data-for="troop">Units per card
+            <input id="count" type="number" min="1" max="15" value="1">
+          </label>
+          <label>Targets
+            <select id="targets">
+              <option value="ground">Ground only</option>
+              <option value="air & ground">Air &amp; ground</option>
+              <option value="buildings">Buildings only</option>
+            </select>
+          </label>
+          <label>Range
+            <select id="range">
+              <option value="melee">Melee</option>
+              <option value="short">Short (about 2 tiles)</option>
+              <option value="medium">Medium (about 4.5 tiles)</option>
+              <option value="long">Long (about 6 tiles)</option>
+            </select>
+          </label>
+          <label data-for="troop">Speed
+            <select id="speed">
+              <option value="slow">Slow</option>
+              <option value="medium" selected>Medium</option>
+              <option value="fast">Fast</option>
+              <option value="very fast">Very fast</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Hitpoints <span class="hint">per unit, optional</span>
+            <input id="hp" type="number" min="1" step="10" placeholder="Claude decides">
+          </label>
+          <label>Damage <span class="hint">per hit, optional</span>
+            <input id="damage" type="number" min="1" step="5" placeholder="Claude decides">
+          </label>
+          <label>Hit speed <span class="hint">seconds, optional</span>
+            <input id="hitSpeed" type="number" min="0.2" max="5" step="0.1" placeholder="Claude decides">
+          </label>
+          <label data-for="building">Lifetime <span class="hint">seconds</span>
+            <input id="lifetime" type="number" min="5" max="120" step="5" placeholder="30">
+          </label>
+        </div>
+        <div class="chips">
+          <label class="check" data-for="troop"><input type="checkbox" id="flying"> Flies</label>
+          <label class="check"><input type="checkbox" id="splash"> Splash damage</label>
+        </div>
+      </div>
+
+      <div class="group" id="spell-stats" hidden>
+        <h3>What the spell does</h3>
+        <div class="row">
+          <label>Damage <span class="hint">optional</span>
+            <input id="spellDamage" type="number" min="0" step="10" placeholder="Claude decides">
+          </label>
+          <label>Radius <span class="hint">tiles, optional</span>
+            <input id="radius" type="number" min="0.5" max="8" step="0.5" placeholder="Claude decides">
+          </label>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>The idea</h3>
+        <label>Special ability <span class="hint">what makes it different</span>
+          <textarea id="ability" maxlength="600" placeholder="e.g. Freezes whatever it hits for 1 second. When it dies, it explodes and slows nearby troops."></textarea>
+        </label>
+        <label>Card text <span class="hint">the one-line description shown on the card</span>
+          <input id="description" type="text" maxlength="140" placeholder="e.g. A slow, chilly tank that only targets buildings.">
+        </label>
+        <label>What it looks like <span class="hint">colors, size, weapon, how it moves and attacks</span>
+          <textarea id="look" maxlength="600" placeholder="e.g. Big blue golem made of ice blocks, cracked glowing chest, stomps the ground when it hits."></textarea>
+        </label>
+        <div class="label">Reference images <span class="hint">drawings, screenshots, anything that shows the vibe</span>
+          <div class="drop-zone" id="drop-zone">
+            <div class="thumbs" id="thumbs"></div>
+            <p id="drop-text">Drop images here or paste them, or</p>
+            <button type="button" class="btn small" id="pick">Choose images</button>
+            <input type="file" id="files" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+            <p class="notice" id="upload-off" hidden>Image uploads need edit access to this page. You can still describe the look in words.</p>
+          </div>
+        </div>
+        <label>Anything else for Claude
+          <textarea id="notes" maxlength="1000" placeholder="e.g. Should counter Hog Rider. Maybe a sound like cracking ice."></textarea>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="submit">Send to the forge</button>
+        <button type="button" class="btn ghost" id="cancel-edit" hidden>Cancel editing</button>
+        <button type="button" class="btn ghost" id="clear">Clear form</button>
+      </div>
+      <p class="status-line" id="status" role="status" aria-live="polite"></p>
+    </form>
+
+    <aside class="side">
+      <section aria-labelledby="preview-h">
+        <h3 id="preview-h">In your hand</h3>
+        <div class="preview-stage"><div id="preview"></div></div>
+        <div class="statline" id="preview-stats"></div>
+      </section>
+      <section aria-labelledby="compare-h">
+        <h3 id="compare-h">Other cards that cost <span id="compare-cost">3</span></h3>
+        <div class="compare" id="compare"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="queue" aria-labelledby="queue-h">
+    <div class="queue-head">
+      <h2 id="queue-h">The forge queue</h2>
+      <div class="legend">
+        <span><i style="background:var(--sent)"></i>Sent</span>
+        <span><i style="background:var(--building)"></i>Claude is building it</span>
+        <span><i style="background:var(--question)"></i>Claude has a question</span>
+        <span><i style="background:var(--added)"></i>In the game</span>
+      </div>
+    </div>
+    <p class="notice" id="db-off" hidden>Saving needs you to be signed in to claude.ai. The form still works for sketching.</p>
+    <div class="concepts" id="concepts">
+      <div class="empty" id="empty">
+        <strong>No card ideas yet</strong>
+        <span>Fill in the form and press Send to the forge. Your ideas show up here with Claude's progress.</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const EXISTING = [{"id":"knight","name":"Knight","cost":3,"type":"troop","rarity":"common","desc":"A tough melee fighter with a mustache. Great value tank for defense.","hp":1450,"damage":170,"hitSpeed":1.2,"range":0.6,"count":1,"targets":"ground","flying":false,"splash":false,"speed":1.0},{"id":"archers","name":"Archers","cost":3,"type":"troop","rarity":"common","desc":"A pair of sharpshooters that can hit air and ground.","hp":300,"damage":105,"hitSpeed":0.9,"range":5.0,"count":2,"targets":"air & ground","flying":false,"splash":false,"speed":1.0},{"id":"giant","name":"Giant","cost":5,"type":"troop","rarity":"rare","desc":"Slow but extremely durable. Only targets buildings.","hp":3600,"damage":220,"hitSpeed":1.5,"range":0.6,"count":1,"targets":"buildings","flying":false,"splash":false,"speed":0.75},{"id":"musketeer","name":"Musketeer","cost":4,"type":"troop","rarity":"rare","desc":"Long-range sniper. Hits air and ground.","hp":640,"damage":190,"hitSpeed":1.0,"range":6.0,"count":1,"targets":"air & ground","flying":false,"splash":false,"speed":1.0},{"id":"minipekka","name":"Mini P.E.K.K.A","cost":4,"type":"troop","rarity":"rare","desc":"Hits extremely hard and moves fast. Loves pancakes.","hp":1100,"damage":600,"hitSpeed":1.6,"range":0.6,"count":1,"targets":"ground","flying":false,"splash":false,"speed":1.5},{"id":"goblins","name":"Goblins","cost":2,"type":"troop","rarity":"common","desc":"Three very fast, fragile stabbers.","hp":170,"damage":100,"hitSpeed":1.1,"range":0.5,"count":3,"targets":"ground","flying":false,"splash":false,"speed":2.0},{"id":"skeletons","name":"Skeletons","cost":1,"type":"troop","rarity":"common","desc":"Three cheap bony distractions.","hp":80,"damage":80,"hitSpeed":1.0,"range":0.5,"count":3,"targets":"ground","flying":false,"splash":false,"speed":1.5},{"id":"babydragon","name":"Baby Dragon","cost":4,"type":"troop","rarity":"epic","desc":"Flying tank that breathes splash fireballs.","hp":1000,"damage":135,"hitSpeed":1.5,"range":3.5,"count":1,"targets":"air & ground","flying":true,"splash":true,"speed":1.5},{"id":"valkyrie","name":"Valkyrie","cost":4,"type":"troop","rarity":"rare","desc":"Spins her axe, damaging every ground unit around her.","hp":1650,"damage":220,"hitSpeed":1.5,"range":0.7,"count":1,"targets":"ground","flying":false,"splash":true,"speed":1.0},{"id":"hogrider","name":"Hog Rider","cost":4,"type":"troop","rarity":"rare","desc":"Very fast building-hunter that jumps over the river.","hp":1400,"damage":260,"hitSpeed":1.6,"range":0.6,"count":1,"targets":"buildings","flying":false,"splash":false,"speed":2.0},{"id":"wizard","name":"Wizard","cost":5,"type":"troop","rarity":"rare","desc":"Shoots fireballs that splash air and ground.","hp":640,"damage":235,"hitSpeed":1.4,"range":5.5,"count":1,"targets":"air & ground","flying":false,"splash":true,"speed":1.0},{"id":"minions","name":"Minions","cost":3,"type":"troop","rarity":"common","desc":"Three fast flying blasters.","hp":190,"damage":85,"hitSpeed":1.0,"range":2.0,"count":3,"targets":"air & ground","flying":true,"splash":false,"speed":1.5},{"id":"pekka","name":"P.E.K.K.A","cost":7,"type":"troop","rarity":"epic","desc":"A heavily armored, slow, devastating melee machine.","hp":3500,"damage":720,"hitSpeed":1.8,"range":0.7,"count":1,"targets":"ground","flying":false,"splash":false,"speed":0.75},{"id":"bomber","name":"Bomber","cost":2,"type":"troop","rarity":"common","desc":"Throws bombs that splash ground units.","hp":300,"damage":190,"hitSpeed":1.8,"range":4.5,"count":1,"targets":"ground","flying":false,"splash":true,"speed":1.0},{"id":"barbarians","name":"Barbarians","cost":5,"type":"troop","rarity":"common","desc":"A horde of four sword-swinging brawlers.","hp":640,"damage":160,"hitSpeed":1.3,"range":0.6,"count":4,"targets":"ground","flying":false,"splash":false,"speed":1.0},{"id":"speargoblins","name":"Spear Goblins","cost":2,"type":"troop","rarity":"common","desc":"Three goblins throwing spears at air and ground.","hp":110,"damage":70,"hitSpeed":1.7,"range":5.0,"count":3,"targets":"air & ground","flying":false,"splash":false,"speed":2.0},{"id":"fireball","name":"Fireball","cost":4,"type":"spell","rarity":"rare","desc":"Big area damage. Deals reduced damage to towers.","damage":600,"radius":2.5},{"id":"arrows","name":"Arrows","cost":3,"type":"spell","rarity":"common","desc":"A volley of arrows over a huge area. Shreds swarms.","damage":300,"radius":4.0},{"id":"zap","name":"Zap","cost":2,"type":"spell","rarity":"common","desc":"Instant small-area damage that briefly stuns.","damage":170,"radius":2.5},{"id":"cannon","name":"Cannon","cost":3,"type":"building","rarity":"common","desc":"Defensive building that shoots ground units. Decays over time.","hp":900,"damage":180,"hitSpeed":0.9,"range":5.5,"count":1,"targets":"ground","flying":false,"splash":false,"speed":0},{"id":"tesla","name":"Tesla","cost":4,"type":"building","rarity":"rare","desc":"Electric defense building that hits air and ground.","hp":1000,"damage":200,"hitSpeed":1.1,"range":5.5,"count":1,"targets":"air & ground","flying":false,"splash":false,"speed":0}];
+
+const STATUS_LABEL = { new: "Sent", building: "Claude is building it", added: "In the game", "needs-info": "Claude has a question" };
+const $ = (id) => document.getElementById(id);
+const TYPE_ICON = {
+  troop: '<svg viewBox="0 0 24 24" fill="#fff"><path d="M14.5 2 21 2 21 8.5 11.8 17.7 13.2 19.1 11.8 20.5 9.7 18.4 6.5 21.6 2.4 17.5 5.6 14.3 3.5 12.2 4.9 10.8 6.3 12.2z"/></svg>',
+  spell: '<svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-4 1-6 1-9z"/></svg>',
+  building: '<svg viewBox="0 0 24 24" fill="#fff"><path d="M4 22V8h2v2h2V8h3v2h2V8h3v2h2V8h2v14h-6v-5a2 2 0 0 0-4 0v5z"/></svg>',
+};
+
+let db = null, assets = null, me = null;
+let images = [];          // [{id, url}] for the card being edited
+let editingId = null;     // doc id when editing an existing concept
+let concepts = [];        // latest snapshot, newest first
+let pendingUploads = 0;
+const emptyState = document.getElementById("empty");
+
+// ---------------------------------------------------------------- form state
+
+function val(id) { return $(id).value.trim(); }
+function num(id) { const v = $(id).value; return v === "" ? null : Number(v); }
+function radio(name) { return document.querySelector(`input[name=${name}]:checked`).value; }
+function setRadio(name, value) { const el = document.querySelector(`input[name=${name}][value="${value}"]`); if (el) el.checked = true; }
+
+function readForm() {
+  const type = radio("type");
+  return {
+    name: val("name"),
+    type,
+    cost: Number($("cost").value),
+    rarity: radio("rarity"),
+    count: type === "troop" ? Math.max(1, num("count") || 1) : 1,
+    targets: type === "spell" ? null : $("targets").value,
+    range: type === "spell" ? null : $("range").value,
+    speed: type === "troop" ? $("speed").value : null,
+    hp: type === "spell" ? null : num("hp"),
+    damage: type === "spell" ? num("spellDamage") : num("damage"),
+    hitSpeed: type === "spell" ? null : num("hitSpeed"),
+    lifetime: type === "building" ? num("lifetime") : null,
+    radius: type === "spell" ? num("radius") : null,
+    flying: type === "troop" && $("flying").checked,
+    splash: type !== "spell" && $("splash").checked,
+    ability: val("ability"),
+    description: val("description"),
+    look: val("look"),
+    notes: val("notes"),
+    images: images.map((i) => i.id),
+  };
+}
+
+function fillForm(c) {
+  $("name").value = c.name || "";
+  setRadio("type", c.type || "troop");
+  $("cost").value = c.cost || 3;
+  setRadio("rarity", c.rarity || "common");
+  $("count").value = c.count || 1;
+  $("targets").value = c.targets || "ground";
+  $("range").value = c.range || "melee";
+  $("speed").value = c.speed || "medium";
+  $("hp").value = c.hp ?? "";
+  $("damage").value = c.type === "spell" ? "" : (c.damage ?? "");
+  $("spellDamage").value = c.type === "spell" ? (c.damage ?? "") : "";
+  $("hitSpeed").value = c.hitSpeed ?? "";
+  $("lifetime").value = c.lifetime ?? "";
+  $("radius").value = c.radius ?? "";
+  $("flying").checked = !!c.flying;
+  $("splash").checked = !!c.splash;
+  $("ability").value = c.ability || "";
+  $("description").value = c.description || "";
+  $("look").value = c.look || "";
+  $("notes").value = c.notes || "";
+  images = (c.images || []).map((id) => ({ id, url: "/_blob/" + id }));
+  renderThumbs();
+  syncType();
+  renderPreview();
+}
+
+function clearForm() {
+  fillForm({});
+  editingId = null;
+  $("form-title").textContent = "New card";
+  $("submit").textContent = "Send to the forge";
+  $("cancel-edit").hidden = true;
+  saveDraft();
+}
+
+function syncType() {
+  const type = radio("type");
+  $("spell-stats").hidden = type !== "spell";
+  $("unit-stats").hidden = type === "spell";
+  document.querySelectorAll("[data-for]").forEach((el) => { el.hidden = el.dataset.for !== type; });
+}
+
+// ---------------------------------------------------------------- preview
+
+function cardEl(c, mini) {
+  const el = document.createElement("div");
+  el.className = `card ${c.rarity || "common"}${mini ? " mini" : ""}`;
+  const art = document.createElement("div");
+  art.className = "art";
+  const img = c.imageUrl;
+  if (img) {
+    const i = document.createElement("img");
+    i.src = img; i.alt = ""; i.onerror = () => { art.innerHTML = TYPE_ICON[c.type] || TYPE_ICON.troop; };
+    art.append(i);
+  } else {
+    art.innerHTML = TYPE_ICON[c.type] || TYPE_ICON.troop;
+  }
+  const cost = document.createElement("div");
+  cost.className = "drop cost"; cost.textContent = c.cost;
+  const name = document.createElement("div");
+  name.className = "name"; name.textContent = c.name || "Your card";
+  el.append(art, cost, name);
+  if (c.count > 1) {
+    const n = document.createElement("div");
+    n.className = "count"; n.textContent = "×" + c.count;
+    el.append(n);
+  }
+  return el;
+}
+
+function statChip(label, value) {
+  const s = document.createElement("span");
+  s.className = "stat";
+  s.append(label + " ");
+  const b = document.createElement("b"); b.textContent = value; s.append(b);
+  return s;
+}
+
+function renderPreview() {
+  const c = readForm();
+  $("cost-drop").textContent = c.cost;
+  const preview = $("preview");
+  preview.replaceChildren(cardEl({ ...c, imageUrl: images[0]?.url }));
+  const stats = $("preview-stats");
+  stats.replaceChildren();
+  const typeName = { troop: "Troop", spell: "Spell", building: "Building" }[c.type];
+  stats.append(statChip("", `${c.rarity[0].toUpperCase()}${c.rarity.slice(1)} ${typeName}`));
+  if (c.type === "spell") {
+    if (c.damage) stats.append(statChip("Damage", c.damage));
+    if (c.radius) stats.append(statChip("Radius", c.radius));
+  } else {
+    if (c.hp) stats.append(statChip("HP", c.hp));
+    if (c.damage) stats.append(statChip("Damage", c.damage));
+    stats.append(statChip("Targets", c.targets));
+    stats.append(statChip("Range", c.range));
+    if (c.flying) stats.append(statChip("", "Flying"));
+    if (c.splash) stats.append(statChip("", "Splash"));
+  }
+  renderCompare(c);
+}
+
+function renderCompare(c) {
+  $("compare-cost").textContent = c.cost;
+  const list = $("compare");
+  list.replaceChildren();
+  const same = EXISTING.filter((e) => e.cost === c.cost);
+  if (!same.length) {
+    const p = document.createElement("p");
+    p.className = "compare-empty";
+    p.textContent = `Nothing in the game costs ${c.cost} elixir yet.`;
+    list.append(p);
+    return;
+  }
+  for (const e of same) {
+    const row = document.createElement("div");
+    row.className = "compare-row";
+    const name = document.createElement("span");
+    name.textContent = e.name + (e.count > 1 ? ` ×${e.count}` : "");
+    const detail = document.createElement("span");
+    detail.textContent = e.type === "spell"
+      ? `${e.damage} dmg · r${e.radius}`
+      : `${e.hp} HP · ${e.damage} dmg / ${e.hitSpeed}s`;
+    row.append(name, detail);
+    list.append(row);
+  }
+}
+
+// ---------------------------------------------------------------- images
+
+function renderThumbs() {
+  const box = $("thumbs");
+  box.replaceChildren();
+  images.forEach((img, i) => {
+    const t = document.createElement("div");
+    t.className = "thumb";
+    const im = document.createElement("img"); im.src = img.url; im.alt = `Reference image ${i + 1}`;
+    const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", `Remove image ${i + 1}`);
+    x.onclick = () => { images.splice(i, 1); renderThumbs(); renderPreview(); saveDraft(); };
+    t.append(im, x);
+    box.append(t);
+  });
+  for (let i = 0; i < pendingUploads; i++) {
+    const t = document.createElement("div"); t.className = "thumb loading"; box.append(t);
+  }
+  $("drop-text").textContent = images.length || pendingUploads ? "Add more by dropping or pasting, or" : "Drop images here or paste them, or";
+}
+
+async function addFiles(files) {
+  const list = [...files].filter((f) => /^image\/(png|jpeg|webp|gif)$/.test(f.type));
+  if (!list.length) return;
+  if (!assets) { setStatus("Image uploads need edit access to this page.", "error"); return; }
+  pendingUploads += list.length;
+  renderThumbs();
+  for (const f of list) {
+    try {
+      const r = await assets.upload(f);
+      images.push({ id: r.id, url: r.url });
+    } catch (e) {
+      const why = { too_large: "is over 20 MB", unsupported_type: "isn't a PNG, JPEG, WebP or GIF", rate_limited: "was blocked for uploading too fast; try again in a moment", quota_or_state: "didn't fit: this page's image storage is full" }[e?.code];
+      setStatus(`${f.name || "That image"} ${why || "couldn't be uploaded"}.`, "error");
+    } finally {
+      pendingUploads--;
+      renderThumbs();
+      renderPreview();
+      saveDraft();
+    }
+  }
+}
+
+$("pick").onclick = () => $("files").click();
+$("files").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
+const zone = $("drop-zone");
+zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
+zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("over"); addFiles(e.dataTransfer.files); });
+document.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+
+// ---------------------------------------------------------------- saving
+
+function setStatus(text, kind) {
+  const s = $("status");
+  s.textContent = text;
+  s.className = "status-line" + (kind ? " " + kind : "");
+}
+
+$("forge").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const c = readForm();
+  if (!c.name) { setStatus("Give the card a name first.", "error"); $("name").focus(); return; }
+  if (!c.ability && !c.description && !c.look && !c.notes) {
+    setStatus("Add at least a sentence about what the card does or looks like.", "error"); $("ability").focus(); return;
+  }
+  if (pendingUploads) { setStatus("Wait for the images to finish uploading.", "error"); return; }
+  if (!db) { setStatus("Sign in to claude.ai to send cards to the forge.", "error"); return; }
+  $("submit").disabled = true;
+  try {
+    const now = new Date().toISOString();
+    if (editingId) {
+      await db.doc("concepts/" + editingId).update({ ...c, updatedAt: now, status: "new" });
+      setStatus(`Updated ${c.name}. Tell Claude it changed.`, "ok");
+    } else {
+      await db.collection("concepts").add({ ...c, status: "new", claudeNote: "", author: me, createdAt: now, updatedAt: now });
+      setStatus(`${c.name} is in the forge queue. Tell Claude “build the new cards” when you're ready.`, "ok");
+    }
+    clearForm();
+  } catch (err) {
+    const why = { quota_exceeded: "The forge is full. Delete some old ideas first.", invalid_argument: "You don't have permission to add cards here." }[err?.code];
+    setStatus(why || "Couldn't save just now. Try again in a moment.", "error");
+  } finally {
+    $("submit").disabled = false;
+  }
+});
+
+$("clear").onclick = () => { clearForm(); setStatus(""); };
+$("cancel-edit").onclick = () => { clearForm(); setStatus("Editing cancelled."); };
+
+// Per-viewer draft, so a half-written idea survives a reload.
+function saveDraft() {
+  try { localStorage.setItem("forge-draft", JSON.stringify({ ...readForm(), editingId })); } catch {}
+}
+function loadDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem("forge-draft") || "null");
+    if (d && !d.editingId) fillForm(d);
+  } catch {}
+}
+
+$("forge").addEventListener("input", () => { syncType(); renderPreview(); saveDraft(); });
+$("forge").addEventListener("change", () => { syncType(); renderPreview(); saveDraft(); });
+
+// ---------------------------------------------------------------- queue
+
+function renderQueue() {
+  const box = $("concepts");
+  box.replaceChildren();
+  if (!concepts.length) { box.append(emptyState); return; }
+  for (const snap of concepts) {
+    const c = snap.data();
+    const status = STATUS_LABEL[c.status] ? c.status : "new";
+    const item = document.createElement("article");
+    item.className = "concept";
+    item.dataset.status = status;
+    item.append(cardEl({ ...c, imageUrl: c.images?.[0] ? "/_blob/" + c.images[0] : null }, true));
+
+    const body = document.createElement("div");
+    body.className = "body";
+    const h = document.createElement("h3"); h.textContent = c.name || "Untitled";
+    const meta = document.createElement("div"); meta.className = "meta";
+    const typeName = { troop: "Troop", spell: "Spell", building: "Building" }[c.type] || "Card";
+    meta.textContent = `${typeName} · ${c.cost} elixir · ${c.rarity || "common"}` + (c.images?.length ? ` · ${c.images.length} image${c.images.length > 1 ? "s" : ""}` : "");
+    const pill = document.createElement("span"); pill.className = "pill " + status; pill.textContent = STATUS_LABEL[status];
+    body.append(h, meta, pill);
+    if (c.ability || c.description) {
+      const p = document.createElement("p"); p.className = "meta"; p.textContent = c.ability || c.description; body.append(p);
+    }
+    if (c.claudeNote) {
+      const r = document.createElement("div"); r.className = "reply";
+      const b = document.createElement("b"); b.textContent = "Claude: ";
+      r.append(b, c.claudeNote);
+      body.append(r);
+    }
+    if (db && (status === "new" || status === "needs-info")) {
+      const actions = document.createElement("div"); actions.className = "actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "btn small"; edit.textContent = "Edit";
+      edit.onclick = () => {
+        editingId = snap.id;
+        fillForm(c);
+        $("form-title").textContent = "Editing " + (c.name || "card");
+        $("submit").textContent = "Save changes";
+        $("cancel-edit").hidden = false;
+        setStatus("");
+        $("forge").scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+      const del = document.createElement("button"); del.type = "button"; del.className = "btn small ghost danger"; del.textContent = "Delete";
+      del.onclick = async () => {
+        if (del.dataset.armed !== "1") { del.dataset.armed = "1"; del.textContent = "Tap again to delete"; return; }
+        del.disabled = true;
+        try {
+          await db.doc("concepts/" + snap.id).delete();
+          if (editingId === snap.id) clearForm();
+        } catch { del.disabled = false; del.textContent = "Couldn't delete"; }
+      };
+      actions.append(edit, del);
+      body.append(actions);
+    }
+    item.append(body);
+    box.append(item);
+  }
+}
+
+// ---------------------------------------------------------------- boot
+
+syncType();
+loadDraft();
+renderPreview();
+renderThumbs();
+
+(async () => {
+  if (!window.claude?.use) { $("db-off").hidden = false; $("upload-off").hidden = false; $("pick").hidden = true; return; }
+  const [dbNs, assetsNs, userNs] = await Promise.all([claude.use("db"), claude.use("assets"), claude.use("user")]);
+  db = dbNs; assets = assetsNs;
+  me = userNs ? await userNs.id() : null;
+  if (!assets) { $("upload-off").hidden = false; $("pick").hidden = true; }
+  if (!db) { $("db-off").hidden = false; return; }
+  db.collection("concepts").orderBy("createdAt", "desc").onSnapshot(
+    (snap) => { concepts = snap.docs; renderQueue(); },
+    () => { $("db-off").textContent = "The forge queue stopped updating. Reload the page to reconnect."; $("db-off").hidden = false; },
+  );
+})();
+</script>
