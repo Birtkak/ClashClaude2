@@ -30,6 +30,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Maps arena tiles to canvas pixels. Updated every draw. */
 class ArenaTransform {
@@ -37,6 +38,15 @@ class ArenaTransform {
     var ox = 0f
     var oy = 0f
     var originInRoot = Offset.Zero
+
+    /** Fits the arena into a canvas of this size. Called at layout time, so touch input never
+     *  depends on whether a frame has been drawn yet. */
+    fun fit(width: Float, height: Float) {
+        scale = min(width / Arena.WIDTH, height / (Arena.HEIGHT + TOP_MARGIN))
+        ox = (width - Arena.WIDTH * scale) / 2f
+        oy = (height - (Arena.HEIGHT + TOP_MARGIN) * scale) / 2f + TOP_MARGIN * scale
+    }
+
     fun sx(x: Float) = ox + x * scale
     fun sy(y: Float) = oy + y * scale
     fun worldX(px: Float) = (px - ox) / scale
@@ -89,7 +99,7 @@ private fun visualScale(c: Combatant): Float = when (c.kind) {
 }
 
 /** How high (tiles) a deploying unit starts its drop from. */
-private const val DROP_HEIGHT = 4f
+private const val DROP_HEIGHT = 3f
 
 /** How high flyers hover above their ground position, in tiles. */
 private const val FLY_HEIGHT = 0.9f
@@ -119,9 +129,7 @@ private fun poseOf(c: Combatant, time: Float): Pose {
 /** Draws the whole arena. [armed] is a card being placed (shows where troops can't go). */
 fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed: CardDef?) {
     // Leave room above the arena for the enemy king tower, which is drawn taller than its footprint.
-    t.scale = min(size.width / Arena.WIDTH, size.height / (Arena.HEIGHT + TOP_MARGIN))
-    t.ox = (size.width - Arena.WIDTH * t.scale) / 2f
-    t.oy = (size.height - (Arena.HEIGHT + TOP_MARGIN) * t.scale) / 2f + TOP_MARGIN * t.scale
+    t.fit(size.width, size.height)
     val s = t.scale
     drawRect(Hedge, Offset.Zero, size)
 
@@ -181,6 +189,14 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
             )
         }
     }
+    // Tile grid, so placements can be lined up exactly.
+    val gridColor = Color(0x22000000)
+    for (gx in 1 until Arena.WIDTH.toInt()) {
+        drawLine(gridColor, Offset(t.sx(gx.toFloat()), t.sy(0f)), Offset(t.sx(gx.toFloat()), t.sy(Arena.HEIGHT)), strokeWidth = 1.5f)
+    }
+    for (gy in 1 until Arena.HEIGHT.toInt()) {
+        drawLine(gridColor, Offset(t.sx(0f), t.sy(gy.toFloat())), Offset(t.sx(Arena.WIDTH), t.sy(gy.toFloat())), strokeWidth = 1.5f)
+    }
     drawRect(
         River,
         topLeft = Offset(t.sx(0f), t.sy(Arena.RIVER_TOP)),
@@ -230,9 +246,9 @@ private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
     val u = s * visualScale(c)
     val fx = t.sx(c.x)
     val groundY = t.sy(c.y) + c.radius * 0.45f * s
-    // While deploying the unit drops in from above, speeding up as it falls.
+    // While deploying the unit drops in from above: a steady fall that eases into the landing.
     val fall = if (c.deploying) (c.deployTimer / Combatant.DEPLOY_TIME).coerceIn(0f, 1f) else 0f
-    val dropHeight = fall * fall * DROP_HEIGHT
+    val dropHeight = fall * sqrt(fall) * DROP_HEIGHT
     val feetY = (if (c.flying) groundY - FLY_HEIGHT * s else groundY) - dropHeight * s
     val color = teamColor(c.team)
 
@@ -520,6 +536,12 @@ private fun DrawScope.drawGhost(battle: Battle, g: Ghost, t: ArenaTransform) {
             drawCircle(tint.copy(alpha = 0.08f), reach, center)
             drawCircle(tint.copy(alpha = 0.6f), reach, center, style = Stroke(s * 0.05f, pathEffect = Dashed))
         }
+        // Highlight the exact tiles the card will occupy.
+        val tiles = if (g.card.type == CardType.BUILDING) 2 else 1
+        val left = if (tiles == 2) g.x - 1f else kotlin.math.floor(g.x)
+        val top = if (tiles == 2) g.y - 1f else kotlin.math.floor(g.y)
+        drawRect(tint.copy(alpha = 0.35f), Offset(t.sx(left), t.sy(top)), Size(tiles * s, tiles * s))
+        drawRect(tint, Offset(t.sx(left), t.sy(top)), Size(tiles * s, tiles * s), style = Stroke(s * 0.06f))
         val proto = Combatant.fromCard(g.card, Team.PLAYER, g.x, g.y)
         val u = s * visualScale(proto)
         for ((x, y) in g.formation) {

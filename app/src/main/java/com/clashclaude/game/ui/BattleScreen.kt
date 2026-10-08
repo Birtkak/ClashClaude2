@@ -48,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -170,7 +171,11 @@ fun BattleScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .onGloballyPositioned { transform.originInRoot = it.positionInRoot() }
+                    .testTag("arena")
+                    .onGloballyPositioned {
+                        transform.originInRoot = it.positionInRoot()
+                        transform.fit(it.size.width.toFloat(), it.size.height.toFloat())
+                    }
                     .pointerInput(Unit) {
                         detectTapGestures { pos ->
                             val i = selected
@@ -274,7 +279,7 @@ fun BattleScreen(
 }
 
 /** The drop point floats this many tiles above the fingertip while dragging. */
-private const val DRAG_LIFT_TILES = 1.3f
+private const val DRAG_LIFT_TILES = 1f
 
 // ---------------------------------------------------------------------- HUD
 
@@ -369,6 +374,7 @@ private fun HandBar(
                         .weight(1f)
                         .offset(y = if (i == selected) (-8).dp else 0.dp)
                         .onGloballyPositioned { onCardPositioned(i, it.positionInRoot()) }
+                        .testTag("hand-$i")
                         .pointerInput(i) {
                             detectDragGestures(
                                 onDragStart = { onDragStart(i, it) },

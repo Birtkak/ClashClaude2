@@ -102,7 +102,7 @@ class Combatant(
 
     companion object {
         private var nextId = 1
-        const val DEPLOY_TIME = 1f
+        const val DEPLOY_TIME = 1.3f
 
         fun fromCard(card: CardDef, team: Team, x: Float, y: Float) = Combatant(
             kind = if (card.type == CardType.BUILDING) Kind.BUILDING else Kind.TROOP,
@@ -338,7 +338,15 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                 py = t.y + dy / d * push
             }
         }
-        return px.coerceIn(0.5f, Arena.WIDTH - 0.5f) to py.coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+        px = px.coerceIn(0.5f, Arena.WIDTH - 0.5f)
+        py = py.coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+        // Snap to the tile grid: troops to a tile's center, 2x2 buildings to a tile corner.
+        val (gx, gy) = if (card.type == CardType.BUILDING) {
+            Math.round(px).toFloat().coerceIn(1f, Arena.WIDTH - 1f) to Math.round(py).toFloat()
+        } else {
+            (kotlin.math.floor(px) + 0.5f) to (kotlin.math.floor(py) + 0.5f)
+        }
+        return if (canPlace(team, card, gx, gy)) gx to gy else px to py
     }
 
     /** Where each unit of [card] spawns when dropped at (x, y). */

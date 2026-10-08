@@ -34,7 +34,9 @@ fun main() {
                 next = b.time + 1f + rng.nextFloat() * 3f
             }
             for (e in b.entities) {
-                if (e.kind != Kind.TROOP || e.deploying || e.stunTimer > 0f || e.lockedOn) {
+                // Crowding right next to its own target (waiting behind teammates) isn't being stuck.
+                val crowding = e.target?.let { t -> kotlin.math.hypot(t.x - e.x, t.y - e.y) - t.radius - e.radius < e.range + 1.5f } ?: false
+                if (e.kind != Kind.TROOP || e.deploying || e.stunTimer > 0f || e.lockedOn || crowding) {
                     lastProgress[e.id] = Triple(e.x, e.y, b.time)
                     continue
                 }

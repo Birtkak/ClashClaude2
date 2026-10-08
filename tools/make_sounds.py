@@ -108,142 +108,173 @@ def write(name, x, peak=0.9):
     print(f"{dest}  {len(x) / RATE:.2f}s")
 
 
+# ---------------------------------------------------------------- shaping
+# The sound palette is deliberately dark and heavy: every impact is layered on a sub-bass
+# "thump" that drops in pitch, saturated for punch, low-passed to remove harsh highs, and
+# given a short room reverb so it feels like it lands somewhere.
+
+def saturate(x, drive=2.5):
+    return np.tanh(x * drive) / np.tanh(drive)
+
+
+def reverb(x, length=0.7, mix=0.25, damp=2500):
+    """Cheap convolution reverb: an exponentially decaying, low-passed noise tail."""
+    n = int(RATE * length)
+    tail = lowpass(rng.uniform(-1, 1, n), damp) * np.exp(-np.arange(n) / RATE * 6.0 / length)
+    tail /= np.sqrt(np.sum(tail ** 2)) + 1e-9
+    size = len(x) + n
+    wet = np.fft.irfft(np.fft.rfft(x, size) * np.fft.rfft(tail, size), size)
+    dry = np.concatenate([x, np.zeros(n)])
+    return dry * (1 - mix) + wet / (np.max(np.abs(wet)) + 1e-9) * np.max(np.abs(x)) * mix
+
+
+def thump(f0, f1, dur, curve=2.5):
+    """Sub-bass kick: a sine dropping from f0 to f1 Hz."""
+    return sweep(f0, f1, dur) * env(int(RATE * dur), 0.002, curve=curve)
+
+
+def dirt(dur, cutoff, curve=4):
+    """Low-passed noise burst: dust, crunch, debris."""
+    return lowpass(noise(dur), cutoff) * env(int(RATE * dur), 0.001, curve=curve)
+
+
+def heavy(x, drive=2.2, room=0.5, wet=0.22):
+    return reverb(saturate(lowpass(x, 5000), drive), room, wet)
+
+
 # ---------------------------------------------------------------- effects
 
 def deploy():
-    # Soft magical "whoomp" when a card is placed.
-    n = noise(0.3)
-    w = lowpass(n, np.linspace(2500, 300, len(n))) * env(len(n), 0.02, curve=2)
-    tone = sweep(500, 900, 0.25) * env(int(RATE * 0.25), 0.01, curve=3) * 0.3
-    return mix(w, tone)
+    # A dark "summon": a low swell that ends in a soft boom.
+    n = noise(0.45)
+    swell = lowpass(n, np.linspace(200, 900, len(n))) * np.linspace(0, 1, len(n)) ** 2 * 0.6
+    boom = pad(thump(90, 35, 0.35), 0.3)
+    return heavy(mix(swell, boom), 1.8, 0.6, 0.25)
 
 
-def land(heavy=False):
-    dur = 0.45 if heavy else 0.25
-    thump = sweep(140 if heavy else 220, 45 if heavy else 80, dur) * env(int(RATE * dur), 0.002, curve=3)
-    dust = lowpass(noise(dur), 900 if heavy else 1500) * env(int(RATE * dur), 0.002, curve=5) * 0.6
-    return mix(thump, dust)
+def land(heavy_land=False):
+    if heavy_land:
+        return heavy(mix(thump(70, 22, 0.6, 2), dirt(0.5, 500, 3) * 0.8), 2.8, 0.8, 0.3)
+    return heavy(mix(thump(95, 35, 0.3), dirt(0.25, 700) * 0.6), 2.2, 0.4, 0.18)
 
 
 def sword():
-    # Metallic clang: a few inharmonic partials plus a click.
-    t = t_axis(0.35)
-    partials = sum(np.sin(2 * np.pi * f * t) * a for f, a in [(1250, 1), (1870, 0.6), (2690, 0.4), (3510, 0.25)])
-    ring = partials * env(len(t), 0.001, curve=6)
-    click = highpass(noise(0.03), 2000) * env(int(RATE * 0.03), 0.001, curve=2)
-    return mix(ring * 0.6, click)
+    # Dark steel: low inharmonic ring, a band-limited slash, and body impact.
+    t = t_axis(0.4)
+    ring = sum(np.sin(2 * np.pi * f * t) * a for f, a in [(310, 1), (467, 0.7), (692, 0.45), (1010, 0.25)])
+    ring = ring * env(len(t), 0.001, curve=7) * 0.45
+    slash = lowpass(highpass(noise(0.08), 600), 2600) * env(int(RATE * 0.08), 0.004, curve=2) * 0.8
+    return heavy(mix(ring, slash, thump(120, 45, 0.18) * 0.9), 2.4, 0.4, 0.2)
 
 
 def punch():
-    body = sweep(180, 60, 0.18) * env(int(RATE * 0.18), 0.001, curve=3)
-    slap = lowpass(noise(0.08), 2500) * env(int(RATE * 0.08), 0.001, curve=3) * 0.7
-    return mix(body, slap)
+    return heavy(mix(thump(100, 32, 0.28, 2), dirt(0.1, 1200, 3) * 0.7), 3.0, 0.35, 0.15)
 
 
 def bow():
-    # String twang plus the arrow whooshing off.
-    twang = sweep(420, 300, 0.18, "tri") * env(int(RATE * 0.18), 0.001, curve=4)
-    whoosh = highpass(noise(0.2), 1500) * env(int(RATE * 0.2), 0.03, curve=2) * 0.35
-    return mix(twang, whoosh)
+    # Low string thrum and a dull whoosh.
+    thrum = sweep(150, 105, 0.22, "tri") * env(int(RATE * 0.22), 0.001, curve=4)
+    whoosh = lowpass(highpass(noise(0.25), 300), 1400) * env(int(RATE * 0.25), 0.04, curve=2) * 0.5
+    return heavy(mix(thrum, whoosh), 1.6, 0.3, 0.12)
 
 
 def hit():
-    thunk = sweep(300, 120, 0.09) * env(int(RATE * 0.09), 0.001, curve=3)
-    tick = highpass(noise(0.02), 3000) * env(int(RATE * 0.02), 0.001, curve=2) * 0.5
-    return mix(thunk, tick)
+    return heavy(mix(thump(140, 55, 0.12), dirt(0.05, 1500, 3) * 0.6), 2.5, 0.25, 0.12)
 
 
 def gun():
-    crack = lowpass(noise(0.25), np.linspace(6000, 600, int(RATE * 0.25))) * env(int(RATE * 0.25), 0.001, curve=6)
-    body = sweep(200, 70, 0.15) * env(int(RATE * 0.15), 0.001, curve=3) * 0.6
-    return mix(crack, body)
+    crack = lowpass(noise(0.3), np.linspace(3500, 250, int(RATE * 0.3))) * env(int(RATE * 0.3), 0.001, curve=5)
+    return heavy(mix(crack, thump(110, 35, 0.3) * 0.9), 3.0, 0.7, 0.3)
 
 
 def cannon():
-    boom = sweep(110, 35, 0.6) * env(int(RATE * 0.6), 0.002, curve=3)
-    blast = lowpass(noise(0.5), np.linspace(3000, 200, int(RATE * 0.5))) * env(int(RATE * 0.5), 0.001, curve=4) * 0.8
-    return mix(boom, blast)
+    boom = thump(65, 20, 0.9, 1.8)
+    blast = lowpass(noise(0.7), np.linspace(2200, 120, int(RATE * 0.7))) * env(int(RATE * 0.7), 0.001, curve=3) * 0.8
+    return heavy(mix(boom, blast), 3.2, 1.0, 0.32)
 
 
 def fire():
-    # Whooshing fireball launch.
-    n = noise(0.4)
-    w = lowpass(n, np.linspace(400, 2500, len(n))) * env(len(n), 0.08, curve=1.5)
-    crackle = (rng.uniform(0, 1, len(n)) > 0.985) * rng.uniform(-1, 1, len(n)) * env(len(n), 0.05, curve=2) * 0.5
-    return mix(w, crackle)
+    n = noise(0.5)
+    roar = lowpass(n, np.linspace(250, 1100, len(n))) * env(len(n), 0.08, curve=1.5)
+    rumble = thump(60, 40, 0.5, 1.2) * 0.5
+    return heavy(mix(roar, rumble), 2.0, 0.5, 0.2)
 
 
 def explosion(big=False):
-    dur = 0.9 if big else 0.5
+    dur = 1.4 if big else 0.75
     n = noise(dur)
-    blast = lowpass(n, np.linspace(5000 if big else 3500, 150, len(n))) * env(len(n), 0.002, curve=3)
-    boom = sweep(90 if big else 130, 30, dur) * env(int(RATE * dur), 0.002, curve=2) * (1.0 if big else 0.7)
-    return mix(blast, boom)
+    blast = lowpass(n, np.linspace(2600 if big else 2000, 80, len(n))) * env(len(n), 0.002, curve=2.5)
+    boom = thump(75 if big else 95, 18, dur, 1.6) * (1.2 if big else 0.9)
+    debris = np.zeros(int(RATE * dur))
+    for _ in range(10 if big else 5):
+        d = dirt(0.06, 900, 3) * rng.uniform(0.1, 0.3)
+        s = int(RATE * rng.uniform(0.1, dur * 0.7))
+        debris[s:s + len(d)] += d[: len(debris) - s]
+    return heavy(mix(blast, boom, debris), 3.4 if big else 2.8, 1.4 if big else 0.9, 0.35)
 
 
 def throw():
-    n = noise(0.25)
-    return lowpass(n, np.linspace(600, 2200, len(n))) * env(len(n), 0.05, curve=2)
+    n = noise(0.3)
+    return heavy(lowpass(n, np.linspace(250, 1000, len(n))) * env(len(n), 0.06, curve=2), 1.4, 0.3, 0.12)
 
 
 def blip():
-    return sweep(700, 1400, 0.1, "tri") * env(int(RATE * 0.1), 0.002, curve=2)
+    # Minion shot: a dark magic pulse.
+    pulse = sweep(220, 330, 0.14, "tri") * env(int(RATE * 0.14), 0.002, curve=2)
+    return heavy(mix(pulse * 0.6, thump(120, 60, 0.12) * 0.6), 2.0, 0.3, 0.2)
 
 
 def zap():
-    # Electric buzz: square wave with random frequency jumps, plus crackle.
-    dur = 0.35
+    dur = 0.45
     t = t_axis(dur)
-    f = 90 + 400 * (rng.uniform(0, 1, len(t)) > 0.97).cumsum() % 3
-    buzz = np.sign(np.sin(2 * np.pi * np.cumsum(f) / RATE))
-    crack = highpass(noise(dur), 2500) * (rng.uniform(0, 1, len(t)) > 0.7)
-    return mix(buzz * 0.5, crack * 0.6) * env(len(t), 0.001, curve=2)
+    f = 55 + 30 * (rng.uniform(0, 1, len(t)) > 0.96).cumsum() % 4
+    buzz = lowpass(np.sign(np.sin(2 * np.pi * np.cumsum(f) / RATE)), 1800)
+    crackle = lowpass(highpass(noise(dur), 1200), 4500) * (rng.uniform(0, 1, len(t)) > 0.75)
+    body = mix(buzz * 0.6, crackle * 0.5, thump(110, 40, 0.2) * 0.8) * env(len(t), 0.001, curve=1.8)
+    return heavy(body, 2.4, 0.5, 0.22)
 
 
 def spin():
-    n = noise(0.35)
-    sweep_cut = 800 + 1600 * np.abs(np.sin(np.linspace(0, 2 * np.pi, len(n))))
-    return lowpass(n, sweep_cut) * env(len(n), 0.03, curve=1.5)
+    n = noise(0.45)
+    cut = 250 + 900 * np.abs(np.sin(np.linspace(0, 2 * np.pi, len(n))))
+    return heavy(mix(lowpass(n, cut) * env(len(n), 0.03, curve=1.5), thump(90, 50, 0.3) * 0.4), 1.8, 0.4, 0.18)
 
 
 def volley():
-    # Many arrows released at once.
-    out = np.zeros(int(RATE * 0.6))
-    for i in range(7):
-        b = bow() * 0.5
-        start = int(RATE * rng.uniform(0, 0.15))
+    out = np.zeros(int(RATE * 0.8))
+    for _ in range(8):
+        b = bow() * 0.45
+        start = int(RATE * rng.uniform(0, 0.18))
         out[start:start + len(b)] += b[: len(out) - start]
     return out
 
 
 def death():
-    # Cartoon "poof".
-    n = noise(0.3)
-    puff = lowpass(n, np.linspace(3000, 400, len(n))) * env(len(n), 0.005, curve=3)
-    pop = sweep(600, 200, 0.12) * env(int(RATE * 0.12), 0.001, curve=3) * 0.5
-    return mix(puff, pop)
+    # A low, muffled collapse.
+    groan = sweep(130, 55, 0.35, "saw") * env(int(RATE * 0.35), 0.01, curve=2)
+    return heavy(mix(lowpass(groan, 600) * 0.6, dirt(0.3, 800, 3) * 0.6, thump(80, 30, 0.3) * 0.7), 2.2, 0.6, 0.25)
 
 
 def tower_down():
-    rumble = lowpass(noise(1.4), 400) * env(int(RATE * 1.4), 0.02, curve=2)
-    boom = explosion(big=True)
-    rocks = np.zeros(int(RATE * 1.4))
-    for _ in range(12):
-        r = hit() * rng.uniform(0.2, 0.5)
-        s = int(RATE * rng.uniform(0.2, 1.1))
+    rumble = lowpass(noise(2.2), 220) * env(int(RATE * 2.2), 0.05, curve=1.6)
+    rocks = np.zeros(int(RATE * 2.2))
+    for _ in range(16):
+        r = hit() * rng.uniform(0.15, 0.4)
+        s = int(RATE * rng.uniform(0.25, 1.6))
         rocks[s:s + len(r)] += r[: len(rocks) - s]
-    return mix(boom, rumble * 0.8, rocks)
+    return mix(explosion(big=True), rumble * 0.9, rocks)
 
 
 def click():
-    return sweep(1800, 1200, 0.04, "tri") * env(int(RATE * 0.04), 0.001, curve=2)
+    return heavy(mix(sweep(520, 380, 0.05, "tri") * env(int(RATE * 0.05), 0.001, curve=2), thump(140, 80, 0.06) * 0.5), 1.5, 0.15, 0.1)
 
 
 def deny():
-    a = sweep(220, 200, 0.12, "square") * env(int(RATE * 0.12), 0.002, curve=1)
-    b = pad(sweep(180, 160, 0.16, "square") * env(int(RATE * 0.16), 0.002, curve=1.5), 0.13)
-    return mix(a, b) * 0.6
+    a = lowpass(sweep(95, 85, 0.16, "square"), 900) * env(int(RATE * 0.16), 0.002, curve=1)
+    b = pad(lowpass(sweep(80, 70, 0.2, "square"), 900) * env(int(RATE * 0.2), 0.002, curve=1.5), 0.17)
+    return heavy(mix(a, b) * 0.7, 1.6, 0.2, 0.1)
 
+# ---------------------------------------------------------------- music & jingles
 
 NOTE = {n: 440 * 2 ** ((i - 9) / 12) for i, n in enumerate(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"])}
 
@@ -253,82 +284,82 @@ def freq(name):
     return NOTE[name[:-1]] * 2 ** (int(name[-1]) - 4)
 
 
-def tone(f, dur, shape="square", decay_curve=1.5, vol=1.0):
+def voice(f, dur, kind="saw", cutoff=1200, curve=1.2, vol=1.0):
+    """A filtered oscillator note: dark saw brass, square bass, or a soft sine pad."""
     n = int(RATE * dur)
     t = np.arange(n) / RATE
-    phase = 2 * np.pi * f * t
-    if shape == "square":
-        w = np.sign(np.sin(phase)) * 0.5 + np.sign(np.sin(phase * 2)) * 0.1
-    elif shape == "tri":
-        w = 2 * np.abs(2 * ((f * t) % 1) - 1) - 1
+    if kind == "saw":
+        w = sum((2 * ((f * k * t) % 1) - 1) / k for k in (1, 1.004))  # two slightly detuned saws
+    elif kind == "square":
+        w = np.sign(np.sin(2 * np.pi * f * t))
     else:
-        w = np.sin(phase)
-    return w * env(n, 0.005, curve=decay_curve) * vol
+        w = np.sin(2 * np.pi * f * t) + 0.3 * np.sin(4 * np.pi * f * t)
+    return lowpass(w, cutoff) * env(n, 0.01, curve=curve) * vol
 
 
-def melody(notes, step, shape="square", curve=1.5, vol=1.0):
+def seq(notes, step, **kw):
     out = []
     for n in notes:
         if n == "-":
             out.append(np.zeros(int(RATE * step)))
+        elif n == "~":  # hold the previous note: extend silence-free by repeating decay tail
+            out.append(np.zeros(int(RATE * step)))
         else:
-            out.append(tone(freq(n), step, shape, curve, vol))
+            chord = n.split("+")
+            out.append(sum(voice(freq(c), step, **kw) for c in chord) / len(chord))
     return np.concatenate(out)
 
 
+def timpani(dur=0.6, f=55):
+    return mix(thump(f * 1.6, f, dur, 2), dirt(0.05, 400, 3) * 0.3)
+
+
 def victory():
-    return mix(
-        melody(["C5", "E5", "G5", "C6", "-", "G5", "C6", "C6"], 0.12, curve=1.2),
-        melody(["C4", "C4", "E4", "E4", "G4", "G4", "C5", "C5"], 0.12, "tri", vol=0.6),
-    )
+    # Heavy brass stabs rising to a held major chord over timpani.
+    brass = seq(["C3+G3+C4", "-", "D#3+A#3+D#4", "-", "F3+C4+F4", "G3+D4+G4", "C3+G3+C4+E4", "~", "~", "~"], 0.16, cutoff=1500, curve=0.9, vol=0.9)
+    drums = mix(timpani(), pad(timpani(), 0.32), pad(timpani(0.9, 45), 0.96))
+    return heavy(mix(brass, drums), 1.8, 1.2, 0.3)
 
 
 def defeat():
-    return mix(
-        melody(["G4", "-", "F#4", "-", "F4", "-", "E4", "E4", "E4", "E4"], 0.16, curve=1.0),
-        melody(["C3", "C3", "B2", "B2", "A#2", "A#2", "A2", "A2", "A2", "A2"], 0.16, "tri", vol=0.6),
-    )
+    # A slow, descending minor line in low brass with a final deep hit.
+    brass = seq(["G2+D3", "~", "F#2+C#3", "~", "F2+C3", "~", "D2+A2+D3", "~", "~", "~"], 0.22, cutoff=900, curve=0.8, vol=0.9)
+    hit_ = pad(thump(60, 22, 1.2, 1.5), 1.32)
+    return heavy(mix(brass, hit_), 2.0, 1.4, 0.35)
 
-
-# ---------------------------------------------------------------- music
 
 def battle_music():
-    """Eight-bar upbeat loop in A minor, 132 bpm, with lead, bass and drums."""
-    bpm = 132
+    """Dark 8-bar loop in D minor, 104 bpm: war drums, a pulsing sub bass, low brass and a drone."""
+    bpm = 104
     eighth = 60 / bpm / 2
-    lead = [
-        "A4", "-", "C5", "E5", "D5", "C5", "B4", "C5",
-        "A4", "-", "E4", "A4", "B4", "C5", "B4", "G4",
-        "F4", "-", "A4", "C5", "B4", "A4", "G4", "A4",
-        "E4", "-", "G#4", "B4", "E5", "-", "D5", "B4",
-        "A4", "-", "C5", "E5", "A5", "G5", "E5", "C5",
-        "D5", "-", "F5", "D5", "C5", "B4", "A4", "B4",
-        "C5", "B4", "A4", "G4", "F4", "G4", "A4", "B4",
-        "A4", "-", "E4", "-", "A4", "-", "-", "-",
-    ]
-    bass_roots = ["A2", "A2", "F2", "E2", "A2", "D3", "F2", "E2"]
+    bars = 8
+    total = int(RATE * eighth * 8 * bars)
+    roots = ["D2", "D2", "A#1", "C2", "D2", "D2", "A#1", "A1"]
     bass = []
-    for root in bass_roots:
-        fifth = {"A2": "E3", "F2": "C3", "E2": "B2", "D3": "A3"}[root]
-        bass += [root, root, fifth, root, root, fifth, root, fifth]
-    lead_track = melody(lead, eighth, "square", curve=1.2, vol=0.35)
-    bass_track = melody(bass, eighth, "tri", curve=0.8, vol=0.5)
-    # Drums: kick on beats, snare on 2 and 4, hats on eighths.
-    total = len(lead_track)
+    for r in roots:
+        bass += [r, r, "-", r, r, "-", r, r]
+    bass_track = seq(bass, eighth, kind="square", cutoff=260, curve=1.5, vol=0.9)
+    chords = ["D3+F3+A3", "D3+F3+A3", "A#2+D3+F3", "C3+E3+G3", "D3+F3+A3", "D3+G3+A#3", "A#2+D3+F3", "A2+C#3+E3"]
+    brass_track = seq([c for c in chords for _ in range(2)], eighth * 4, kind="saw", cutoff=700, curve=0.6, vol=0.45)
+    drone = voice(freq("D2"), total / RATE, kind="sine", cutoff=300, curve=0.01, vol=0.25)
     drums = np.zeros(total)
     beat = int(RATE * eighth * 2)
-    kick = sweep(150, 45, 0.15) * env(int(RATE * 0.15), 0.001, curve=3) * 0.9
-    snare = highpass(noise(0.15), 1200) * env(int(RATE * 0.15), 0.001, curve=4) * 0.35
-    hat = highpass(noise(0.04), 6000) * env(int(RATE * 0.04), 0.001, curve=3) * 0.12
+    kick = thump(70, 30, 0.35, 2.2) * 1.1
+    tom = thump(110, 70, 0.25, 2) * 0.6
+    snare = lowpass(highpass(noise(0.25), 300), 2500) * env(int(RATE * 0.25), 0.001, curve=3) * 0.45
     for i in range(total // beat):
         s = i * beat
-        drums[s:s + len(kick)] += kick[: total - s]
-        if i % 2 == 1:
-            drums[s:s + len(snare)] += snare[: total - s]
-        for h in (s, s + beat // 2):
-            drums[h:h + len(hat)] += hat[: max(0, total - h)]
-    music = mix(lead_track, bass_track, drums)
-    return lowpass(music, 7000)
+        hits = [kick] if i % 4 in (0, 2) else [snare]
+        if i % 8 == 7:
+            hits += [pad(tom, eighth), pad(tom * 0.8, eighth * 1.5)]
+        for h in hits:
+            drums[s:s + len(h)] += h[: max(0, total - s)]
+    music = mix(bass_track, brass_track, drone, drums)[:total]
+    # Wrap the reverb tail around so the loop point is seamless.
+    wet = reverb(saturate(music, 1.4), 1.2, 0.25)
+    out = wet[:total].copy()
+    out[: len(wet) - total] += wet[total:]
+    return lowpass(out, 6000)
 
 
 SOUNDS = {

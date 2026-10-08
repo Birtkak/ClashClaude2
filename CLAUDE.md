@@ -5,7 +5,8 @@ See README.md for gameplay, layout and build commands.
 
 ## Checks before pushing
 
-- `./gradlew testDebugUnitTest` (engine tests) and `./gradlew assembleDebug`
+- `./gradlew testDebugUnitTest` (engine tests, plus `DragDeployTest`, which drags a card on the real
+  Android Compose stack via Robolectric and saves frames to `app/build/ui-shots/`) and `./gradlew assembleDebug`
 - `cd playtest && ../gradlew screenshots` renders the real screens headlessly to
   `playtest/build/playtest/*.png` (sprite gallery, battle, drag ghost, staged fight); look at them
   after any UI or art change.

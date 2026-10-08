@@ -49,8 +49,8 @@ class BattleTest {
     fun troopDropsOnEnemySideSnapBehindTheRiver() {
         val b = newBattle()
         val knight = Cards.get("knight")!!
-        val (x, y) = b.snapPlacement(Team.PLAYER, knight, 14f, 4f)
-        assertEquals(14f, x, 0.001f)
+        val (x, y) = b.snapPlacement(Team.PLAYER, knight, 14.2f, 4f)
+        assertEquals("snaps to the tile center", 14.5f, x, 0.001f)
         assertTrue("snapped y=$y should be on the player side", y >= Arena.RIVER_BOTTOM)
         assertTrue(b.canPlace(Team.PLAYER, knight, x, y))
     }
