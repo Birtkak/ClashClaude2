@@ -16,6 +16,17 @@ android {
         versionName = "0.1"
     }
 
+    signingConfigs {
+        // Shared, checked-in debug key so APKs from CI, Claude sessions and Android Studio
+        // all have the same signature and install over each other. Not for Play Store use.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
