@@ -7,7 +7,7 @@ enum class TargetType { GROUND, ANY, BUILDINGS }
 
 enum class Rarity { COMMON, RARE, EPIC }
 
-enum class ProjectileStyle { NONE, ARROW, BULLET, FIRE, BOMB, ORB, ZAP }
+enum class ProjectileStyle { NONE, ARROW, SPEAR, BULLET, CANNONBALL, FIRE, BOMB, ORB, ZAP }
 
 /**
  * Static definition of a card. Distances are in arena tiles, times in seconds,
@@ -145,7 +145,7 @@ object Cards {
             "speargoblins", "Spear Goblins", "🔱", 2, CardType.TROOP, Rarity.COMMON,
             "Three goblins throwing spears at air and ground.",
             count = 3, hp = 110, damage = 70, hitSpeed = 1.7f, range = 5f, speed = 2.0f,
-            radius = 0.35f, projectile = ProjectileStyle.ARROW, projectileSpeed = 14f,
+            radius = 0.35f, projectile = ProjectileStyle.SPEAR, projectileSpeed = 14f,
         ),
         CardDef(
             "fireball", "Fireball", "🔥", 4, CardType.SPELL, Rarity.RARE,
@@ -167,7 +167,7 @@ object Cards {
             "Defensive building that shoots ground units. Decays over time.",
             hp = 900, damage = 180, hitSpeed = 0.9f, range = 5.5f, sight = 5.5f,
             targets = TargetType.GROUND, radius = 0.9f, lifetime = 30f,
-            projectile = ProjectileStyle.BULLET, projectileSpeed = 16f,
+            projectile = ProjectileStyle.CANNONBALL, projectileSpeed = 14f,
         ),
         CardDef(
             "tesla", "Tesla", "🗼", 4, CardType.BUILDING, Rarity.RARE,

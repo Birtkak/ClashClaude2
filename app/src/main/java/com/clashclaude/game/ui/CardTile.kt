@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -24,7 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
 import com.clashclaude.game.data.CardDef
+import com.clashclaude.game.data.CardType
 
 /** A card face: emoji art, elixir cost badge and name. Scales with its width. */
 @Composable
@@ -47,14 +49,9 @@ fun CardTile(
     ) {
         val density = LocalDensity.current
         val w = maxWidth
-        val emojiSize = with(density) { (w * 0.5f).toSp() }
         val nameSize = with(density) { (w * 0.13f).toSp() }
         val badge = w * 0.3f
-        Text(
-            card.emoji,
-            fontSize = emojiSize,
-            modifier = Modifier.align(Alignment.Center).offset(y = -w * 0.04f),
-        )
+        CardArt(card, Modifier.fillMaxSize())
         if (showCost) Box(
             Modifier
                 .padding(3.dp)
@@ -86,6 +83,40 @@ fun CardTile(
                     .background(Color(0x66000000))
                     .padding(vertical = 2.dp, horizontal = 2.dp),
             )
+        }
+    }
+}
+
+/** The unit (or spell) drawn as the card's portrait; multi-unit cards show a small group. */
+@Composable
+fun CardArt(card: CardDef, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        if (card.type == CardType.SPELL) {
+            Pen(this, w * 0.5f, h * 0.42f, w * 0.62f).spellIcon(card.id, 0f)
+            return@Canvas
+        }
+        val tint = Color(0xFF3FA7FF)
+        val big = card.id == "giant" || card.id == "pekka"
+        val feetY = h * 0.74f
+        when {
+            card.count >= 3 -> {
+                val u = h * 0.36f
+                Pen(this, w * 0.3f, feetY - h * 0.1f, u * 0.9f).unit(card.id, tint, Pose.IDLE)
+                Pen(this, w * 0.72f, feetY - h * 0.1f, u * 0.9f).unit(card.id, tint, Pose.IDLE)
+                Pen(this, w * 0.5f, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
+            }
+            card.count == 2 -> {
+                val u = h * 0.42f
+                Pen(this, w * 0.33f, feetY - h * 0.04f, u * 0.92f).unit(card.id, tint, Pose.IDLE)
+                Pen(this, w * 0.64f, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
+            }
+            else -> {
+                val u = h * if (big) 0.6f else if (card.type == CardType.BUILDING) 0.48f else 0.54f
+                val x = w * if (card.id == "hogrider") 0.45f else 0.5f
+                Pen(this, x, feetY + h * 0.02f, u).unit(card.id, tint, Pose.IDLE)
+            }
         }
     }
 }

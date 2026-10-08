@@ -62,7 +62,6 @@ class Combatant(
     val projectileSpeed: Float,
     val lifetime: Float,
     val jumpsRiver: Boolean,
-    val emoji: String,
 ) {
     val id: Int = nextId++
     var hp: Float = maxHp
@@ -74,7 +73,24 @@ class Combatant(
     var stunTimer = 0f
     var active = kind != Kind.KING_TOWER
     var hitFlash = 0f
-    var attackAnim = 0f
+
+    // Animation state, read by the renderer.
+    /** +1 when facing right, -1 when facing left. */
+    var faceX = if (team == Team.PLAYER) 1f else -1f
+    var moving = false
+    /** Distance walked so far, drives the walk cycle. */
+    var walkCycle = 0f
+    /** Seconds since the last attack landed (large when idle). */
+    var sinceAttack = 99f
+    /** Point the unit/tower is aiming at, e.g. for turning a cannon or a tower archer. */
+    var aimX = x
+    var aimY = y
+
+    // Ground pathing: current A* route toward the goal with this id, replanned periodically.
+    var path: List<Pair<Float, Float>>? = null
+    var pathIndex = 0
+    var pathGoalId = -1
+    var pathTimer = 0f
 
     val alive: Boolean get() = hp > 0f
     val isBuilding: Boolean get() = kind != Kind.TROOP
@@ -96,7 +112,7 @@ class Combatant(
             flying = card.flying, targets = card.targets, splash = card.splash,
             splashAroundSelf = card.splashAroundSelf, radius = card.radius,
             projectile = card.projectile, projectileSpeed = card.projectileSpeed,
-            lifetime = card.lifetime, jumpsRiver = card.jumpsRiver, emoji = card.emoji,
+            lifetime = card.lifetime, jumpsRiver = card.jumpsRiver,
         ).apply { deployTimer = DEPLOY_TIME }
 
         fun tower(king: Boolean, team: Team, x: Float, y: Float) = Combatant(
@@ -109,8 +125,9 @@ class Combatant(
             sight = if (king) 6.5f else 7f,
             speed = 0f, flying = false, targets = TargetType.ANY, splash = 0f,
             splashAroundSelf = false, radius = if (king) 2f else 1.5f,
-            projectile = ProjectileStyle.ARROW, projectileSpeed = 16f,
-            lifetime = 0f, jumpsRiver = false, emoji = if (king) "🤴" else "👸",
+            projectile = if (king) ProjectileStyle.CANNONBALL else ProjectileStyle.ARROW,
+            projectileSpeed = if (king) 13f else 16f,
+            lifetime = 0f, jumpsRiver = false,
         )
     }
 }
@@ -125,10 +142,21 @@ class Projectile(
     val hitsAir: Boolean,
     val speed: Float,
     val style: ProjectileStyle,
+    /** Height above the ground (tiles) it was fired from, e.g. the top of a tower. */
+    val launchHeight: Float = 0.5f,
 ) {
+    val startX = x
+    val startY = y
     var tx = target.x
     var ty = target.y
     var done = false
+
+    /** 0 at launch, 1 on impact. */
+    val progress: Float
+        get() {
+            val total = hypot(tx - startX, ty - startY)
+            return if (total < 0.01f) 1f else (1f - hypot(tx - x, ty - y) / total).coerceIn(0f, 1f)
+        }
 }
 
 class SpellCast(
@@ -139,10 +167,34 @@ class SpellCast(
     val tx: Float,
     val ty: Float,
 ) {
+    val startX = x
+    val startY = y
     var done = false
+
+    /** 0 at cast, 1 on impact. */
+    val progress: Float
+        get() {
+            val total = hypot(tx - startX, ty - startY)
+            return if (total < 0.01f) 1f else (1f - hypot(tx - x, ty - y) / total).coerceIn(0f, 1f)
+        }
 }
 
-enum class EffectKind { RING, FLASH, LINE, PUFF }
+enum class EffectKind {
+    /** Expanding outline, e.g. a deploy marker or Valkyrie's spin. */
+    RING,
+    /** Filled flash that fades. */
+    FLASH,
+    /** Lightning bolt from (x, y) to (x2, y2). */
+    LINE,
+    /** Death puff. */
+    PUFF,
+    /** Small impact spark where a projectile hit. */
+    SPARK,
+    /** Splash damage area: filled blast plus ring, sized to the real radius. */
+    EXPLOSION,
+    /** Melee weapon slash on the target. */
+    SLASH,
+}
 
 class Effect(
     val kind: EffectKind,
@@ -153,6 +205,8 @@ class Effect(
     val duration: Float,
     val x2: Float = 0f,
     val y2: Float = 0f,
+    /** Height above the ground (tiles) of the effect's start point, e.g. the top of a Tesla. */
+    val lift: Float = 0f,
 ) {
     var age = 0f
     val progress: Float get() = (age / duration).coerceIn(0f, 1f)
@@ -203,6 +257,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         private set
 
     val ai = AiController(this, enemy, rng)
+    private val pathfinder = Pathfinder(entities)
 
     init {
         entities += Combatant.tower(true, Team.PLAYER, 9f, 29.5f)
@@ -271,6 +326,28 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         return px.coerceIn(0.5f, Arena.WIDTH - 0.5f) to py.coerceIn(0.5f, Arena.HEIGHT - 0.5f)
     }
 
+    /** Where each unit of [card] spawns when dropped at (x, y). */
+    fun formation(team: Team, card: CardDef, x: Float, y: Float): List<Pair<Float, Float>> {
+        val n = card.count
+        val ring = if (n <= 1) 0f else 0.35f + 0.15f * n
+        return List(n) { i ->
+            val a = (2.0 * PI * i / n + PI / 2).toFloat()
+            val ux = (x + ring * cos(a)).coerceIn(0.5f, Arena.WIDTH - 0.5f)
+            var uy = (y + ring * sin(a)).coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+            if (!card.flying && Arena.inRiver(uy)) {
+                uy = if (team == Team.PLAYER) Arena.RIVER_BOTTOM else Arena.RIVER_TOP
+            }
+            ux to uy
+        }
+    }
+
+    /** Seconds until [side] can afford [card], or 0 if it already can. */
+    fun secondsUntilAffordable(side: Side, card: CardDef): Float {
+        val missing = card.cost - side.elixir
+        if (missing <= 0f) return 0f
+        return missing * ELIXIR_SECONDS / if (doubleElixir) 2f else 1f
+    }
+
     fun inDeployZone(team: Team, x: Float, y: Float): Boolean {
         val left = x < Arena.WIDTH / 2f
         return if (team == Team.PLAYER) {
@@ -301,17 +378,8 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             return true
         }
 
-        val n = card.count
-        val ring = if (n <= 1) 0f else 0.35f + 0.15f * n
-        for (i in 0 until n) {
-            val a = (2.0 * PI * i / n + PI / 2).toFloat()
-            var ux = (x + ring * cos(a)).coerceIn(0.5f, Arena.WIDTH - 0.5f)
-            var uy = (y + ring * sin(a)).coerceIn(0.5f, Arena.HEIGHT - 0.5f)
-            if (!card.flying && Arena.inRiver(uy)) {
-                uy = if (team == Team.PLAYER) Arena.RIVER_BOTTOM else Arena.RIVER_TOP
-            }
-            ux = ux.coerceIn(0.5f, Arena.WIDTH - 0.5f)
-            entities += Combatant.fromCard(card, team, ux, uy)
+        for ((ux, uy) in formation(team, card, x, y)) {
+            entities += Combatant.fromCard(card, team, ux, uy).apply { faceX = if (x < Arena.WIDTH / 2f) 1f else -1f }
         }
         effects += Effect(EffectKind.RING, x, y, 1.2f, teamColor(team), 0.5f)
         return true
@@ -372,7 +440,8 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
 
     private fun updateCombatant(c: Combatant, dt: Float) {
         c.hitFlash -= dt
-        c.attackAnim -= dt
+        c.sinceAttack += dt
+        c.moving = false
         if (c.deployTimer > 0f) {
             c.deployTimer -= dt
             return
@@ -405,11 +474,14 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         val t = c.target
         if (t == null) {
             if (c.kind == Kind.TROOP) {
-                marchTarget(c)?.let { moveToward(c, it.x, it.y, dt) }
+                marchTarget(c)?.let { moveToward(c, it, dt) }
             }
             return
         }
+        c.aimX = t.x
+        c.aimY = t.y
         if (edgeDist(c, t) <= c.range) {
+            if (abs(t.x - c.x) > 0.05f) c.faceX = if (t.x > c.x) 1f else -1f
             c.lockedOn = true
             if (c.cooldown <= 0f) {
                 attack(c, t)
@@ -419,7 +491,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             c.lockedOn = false
             // First hit after arriving takes a moment to wind up.
             c.cooldown = max(c.cooldown, c.hitSpeed * 0.35f)
-            if (c.kind == Kind.TROOP) moveToward(c, t.x, t.y, dt)
+            if (c.kind == Kind.TROOP) moveToward(c, t, dt)
         }
     }
 
@@ -455,19 +527,31 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         return candidates.minByOrNull { hypot(it.x - c.x, it.y - c.y) }
     }
 
-    private fun moveToward(c: Combatant, tx: Float, ty: Float, dt: Float) {
-        var wx = tx
-        var wy = ty
-        if (!c.flying && !c.jumpsRiver) {
-            val targetTop = ty < Arena.RIVER_MID
-            val needsCross = if (targetTop) c.y > Arena.RIVER_TOP else c.y < Arena.RIVER_BOTTOM
-            if (needsCross) {
-                val bx = Arena.BRIDGES.minByOrNull { abs(c.x - it) + abs(tx - it) * 0.5f }!!
-                val entryY = if (targetTop) Arena.RIVER_BOTTOM + 0.3f else Arena.RIVER_TOP - 0.3f
-                val exitY = if (targetTop) Arena.RIVER_TOP - 0.4f else Arena.RIVER_BOTTOM + 0.4f
-                val pastEntry = if (targetTop) c.y <= entryY + 0.05f else c.y >= entryY - 0.05f
-                wx = bx
-                wy = if (abs(c.x - bx) < 0.6f && pastEntry) exitY else entryY
+    private fun moveToward(c: Combatant, goal: Combatant, dt: Float) {
+        var wx = goal.x
+        var wy = goal.y
+        if (!c.flying) {
+            c.pathTimer -= dt
+            val stale = c.path == null || c.pathGoalId != goal.id || c.pathTimer <= 0f ||
+                c.pathIndex >= (c.path?.size ?: 0)
+            if (stale) {
+                c.path = pathfinder.findPath(c, goal.x, goal.y, goal)
+                c.pathIndex = 0
+                c.pathGoalId = goal.id
+                c.pathTimer = 0.5f + rng.nextFloat() * 0.3f
+            }
+            val path = c.path
+            if (path != null) {
+                while (c.pathIndex < path.lastIndex &&
+                    hypot(path[c.pathIndex].first - c.x, path[c.pathIndex].second - c.y) < 0.2f
+                ) {
+                    c.pathIndex++
+                }
+                // On the final leg, chase the goal's live position (it may be moving).
+                if (c.pathIndex < path.lastIndex) {
+                    wx = path[c.pathIndex].first
+                    wy = path[c.pathIndex].second
+                }
             }
         }
         val dx = wx - c.x
@@ -477,29 +561,43 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         val step = min(dist, c.speed * dt)
         c.x += dx / dist * step
         c.y += dy / dist * step
+        c.moving = true
+        c.walkCycle += step
+        if (abs(dx) > 0.02f) c.faceX = if (dx > 0f) 1f else -1f
     }
 
     private fun attack(c: Combatant, t: Combatant) {
-        c.attackAnim = 0.2f
+        c.sinceAttack = 0f
         val hitsAir = c.targets != TargetType.GROUND
         when {
             c.projectile == ProjectileStyle.ZAP -> {
                 damage(t, c.damage)
-                effects += Effect(EffectKind.LINE, c.x, c.y, 0f, 0xFF9FE8FF, 0.15f, t.x, t.y)
+                effects += Effect(EffectKind.LINE, c.x, c.y, 0f, 0xFF9FE8FF, 0.18f, t.x, t.y, lift = 1.5f)
+                effects += Effect(EffectKind.SPARK, t.x, t.y, 0.4f, 0xFF9FE8FF, 0.2f)
             }
             c.projectileSpeed > 0f -> {
+                val launch = when {
+                    c.kind == Kind.PRINCESS_TOWER -> 2.2f
+                    c.kind == Kind.KING_TOWER -> 2.0f
+                    c.flying -> 1.0f
+                    c.kind == Kind.BUILDING -> 0.5f
+                    else -> 0.6f
+                }
                 projectiles += Projectile(
-                    c.team, c.x, c.y, t, c.damage, c.splash, hitsAir, c.projectileSpeed, c.projectile,
+                    c.team, c.x, c.y, t, c.damage, c.splash, hitsAir, c.projectileSpeed, c.projectile, launch,
                 )
             }
             c.splashAroundSelf -> {
                 splashDamage(c.team, c.x, c.y, c.splash + c.radius, c.damage, hitsAir)
-                effects += Effect(EffectKind.RING, c.x, c.y, c.splash + c.radius, 0xCCFFFFFF, 0.25f)
+                effects += Effect(EffectKind.RING, c.x, c.y, c.splash + c.radius, 0xDDFFFFFF, 0.3f)
             }
-            c.splash > 0f -> splashDamage(c.team, t.x, t.y, c.splash, c.damage, hitsAir)
+            c.splash > 0f -> {
+                splashDamage(c.team, t.x, t.y, c.splash, c.damage, hitsAir)
+                effects += Effect(EffectKind.EXPLOSION, t.x, t.y, c.splash, 0xCCFFB74D, 0.35f)
+            }
             else -> {
                 damage(t, c.damage)
-                effects += Effect(EffectKind.FLASH, t.x, t.y, 0.4f, 0xCCFFFFFF, 0.12f)
+                effects += Effect(EffectKind.SLASH, t.x, t.y, max(0.5f, t.radius), 0xFFFFFFFF, 0.18f, c.x, c.y)
             }
         }
     }
@@ -557,6 +655,9 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                     bStatic -> 1f
                     else -> mb / (ma + mb)
                 }
+                // Enemy troops that aren't fighting each other (e.g. two Giants meeting on a
+                // bridge) walk past one another instead of deadlocking.
+                if (!aStatic && !bStatic && a.team != b.team && a.target !== b && b.target !== a) continue
                 val push = overlap * 0.5f
                 a.x -= nx * push * shareA * 2f
                 a.y -= ny * push * shareA * 2f
@@ -597,9 +698,10 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                 if (p.splash > 0f) {
                     splashDamage(p.team, p.tx, p.ty, p.splash, p.damage, p.hitsAir)
                     val color = if (p.style == ProjectileStyle.BOMB) 0xCCFFD54F else 0xCCFF7043
-                    effects += Effect(EffectKind.RING, p.tx, p.ty, p.splash, color, 0.3f)
-                } else if (p.target.alive) {
-                    damage(p.target, p.damage)
+                    effects += Effect(EffectKind.EXPLOSION, p.tx, p.ty, p.splash, color, 0.4f)
+                } else {
+                    if (p.target.alive) damage(p.target, p.damage)
+                    effects += Effect(EffectKind.SPARK, p.tx, p.ty, 0.35f, 0xFFFFF59D, 0.2f)
                 }
             } else {
                 p.x += dx / dist * step
@@ -628,8 +730,13 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                     "zap" -> 0xDD80D8FF
                     else -> 0xDDFFF59D
                 }
-                effects += Effect(EffectKind.RING, s.tx, s.ty, s.card.spellRadius, color, 0.45f)
-                effects += Effect(EffectKind.FLASH, s.tx, s.ty, s.card.spellRadius, color, 0.25f)
+                effects += Effect(EffectKind.EXPLOSION, s.tx, s.ty, s.card.spellRadius, color, 0.5f)
+                if (s.card.id == "zap") {
+                    for (i in -1..1) {
+                        val bx = s.tx + i * s.card.spellRadius * 0.5f
+                        effects += Effect(EffectKind.LINE, bx, s.ty, 0f, 0xFFB3E5FC, 0.25f, s.tx + i * 0.3f, s.ty, lift = 5f)
+                    }
+                }
             } else {
                 s.x += dx / dist * step
                 s.y += dy / dist * step

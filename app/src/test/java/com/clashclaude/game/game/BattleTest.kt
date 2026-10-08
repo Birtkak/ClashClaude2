@@ -71,6 +71,20 @@ class BattleTest {
     }
 
     @Test
+    fun troopsDeployedBehindTheirOwnTowerWalkAroundIt() {
+        // Regression: units placed straight behind a princess tower used to push into it forever.
+        for (x in floatArrayOf(Arena.BRIDGES[0], Arena.BRIDGES[1])) {
+            val b = newBattle()
+            b.enemy.elixir = 10f
+            b.enemy.hand[0] = Cards.get("giant")!!
+            assertTrue(b.deploy(Team.ENEMY, 0, x, 3.5f))
+            val giant = b.entities.last()
+            repeat(30 * 25) { b.update(1f / 30f) }
+            assertTrue("giant stuck at (${giant.x}, ${giant.y})", !giant.alive || giant.y > Arena.RIVER_BOTTOM)
+        }
+    }
+
+    @Test
     fun matchesAgainstTheAiAlwaysFinish() {
         repeat(5) { seed ->
             val rng = Random(seed)

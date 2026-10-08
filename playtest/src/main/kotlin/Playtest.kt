@@ -7,6 +7,17 @@ import com.clashclaude.game.data.DeckRepository
 import com.clashclaude.game.ui.BattleScreen
 import com.clashclaude.game.ui.ClashTheme
 import com.clashclaude.game.ui.HomeScreen
+import com.clashclaude.game.ui.Pen
+import com.clashclaude.game.ui.Pose
+import com.clashclaude.game.ui.spellIcon
+import com.clashclaude.game.ui.tower
+import com.clashclaude.game.ui.unit
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.clashclaude.game.data.CardType
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
 
@@ -87,6 +98,37 @@ fun main(args: Array<String>) {
     Driver(home, out).screenshot("01-home")
     home.close()
 
+    // Sprite sheet: every card in idle, walk and attack poses, plus both towers.
+    val gallery = ImageComposeScene(W, H, density) {
+        Canvas(Modifier.fillMaxSize().background(Color(0xFF6DBE45))) {
+            val cell = size.width / 6f
+            Cards.all.forEachIndexed { i, card ->
+                val col = (i % 2) * 3
+                val row = i / 2
+                val y = cell * 0.8f * (row + 1) + 10f
+                for (p in 0 until 3) {
+                    val pose = when (p) {
+                        0 -> Pose(time = 0.2f)
+                        1 -> Pose(walk = 1.2f, moving = true, time = 0.5f)
+                        else -> Pose(swing = -0.6f, recoil = 0.8f, aim = -0.3f, time = 0.8f)
+                    }
+                    val x = cell * (col + p + 0.5f)
+                    if (card.type == CardType.SPELL) {
+                        Pen(this, x, y - cell * 0.3f, cell * 0.45f).spellIcon(card.id, p * 0.3f)
+                    } else {
+                        Pen(this, x, y, cell * 0.5f).unit(card.id, if (p == 2) Color(0xFFFF4B4B) else Color(0xFF3FA7FF), pose)
+                    }
+                }
+            }
+            Pen(this, cell * 1.5f, size.height - cell * 1.6f, cell * 0.5f).tower(false, Color(0xFF3FA7FF), 1f, -1f, Pose())
+            Pen(this, cell * 4.5f, size.height - cell * 1.6f, cell * 0.5f).tower(true, Color(0xFFFF4B4B), -1f, 1f, Pose(recoil = 1f))
+        }
+    }
+    Driver(gallery, out).screenshot("00-gallery")
+    gallery.close()
+
+    stagedFight(out, density)
+
     val deck = Cards.defaultDecks[0].mapNotNull { Cards.get(it) }
     val battle = ImageComposeScene(W, H, density) { ClashTheme { BattleScreen(deck) {} } }
     val d = Driver(battle, out)
@@ -103,11 +145,50 @@ fun main(args: Array<String>) {
     for (round in 0 until 4) {
         d.wait(5f)
         val card = round % 4
-        d.drag(handX[card], HAND_Y, if (round % 2 == 0) 830f else 250f, 500f, shot = if (round == 0) "04-dragging" else null)
+        d.drag(handX[card], HAND_Y, if (round % 2 == 0) 830f else 250f, if (round < 2) 1500f else 500f, shot = if (round == 0) "04-dragging" else null)
     }
     d.wait(3f)
     d.screenshot("05-mid-battle")
     d.wait(30f)
     d.screenshot("06-later")
     battle.close()
+}
+
+/** A staged clash in the player's left lane so projectiles, splash and melee are all on screen. */
+private fun stagedFight(out: File, density: Density) {
+    fun deck(vararg ids: String) = ids.map { Cards.get(it)!! }
+    val player = deck("wizard", "archers", "knight", "valkyrie", "musketeer", "minions", "bomber", "babydragon")
+    val enemy = deck("giant", "barbarians", "minions", "goblins", "hogrider", "pekka", "speargoblins", "skeletons")
+    val battle = com.clashclaude.game.game.Battle(player, enemy, kotlin.random.Random(7))
+    fun put(team: com.clashclaude.game.game.Team, id: String, x: Float, y: Float) {
+        val side = battle.side(team)
+        side.elixir = 10f
+        // Put the wanted card in hand slot 0, then deploy it.
+        val card = Cards.get(id)!!
+        side.hand[0] = card
+        check(battle.deploy(team, 0, x, y)) { "couldn't deploy $id at $x,$y" }
+    }
+    val P = com.clashclaude.game.game.Team.PLAYER
+    val E = com.clashclaude.game.game.Team.ENEMY
+    put(E, "giant", 3.5f, 11f)
+    put(E, "barbarians", 4.5f, 13f)
+    put(E, "minions", 6f, 12f)
+    put(P, "wizard", 4f, 24f)
+    put(P, "valkyrie", 3.5f, 20.5f)
+    put(P, "archers", 6f, 23f)
+    put(P, "bomber", 2f, 23f)
+    put(P, "babydragon", 6.5f, 21f)
+    battle.enemy.elixir = 0f
+    battle.player.elixir = 0f
+
+    val scene = ImageComposeScene(W, H, density) {
+        ClashTheme { BattleScreen(player, initialBattle = battle) {} }
+    }
+    val d = Driver(scene, out)
+    d.wait(6f)
+    for (i in 1..4) {
+        d.wait(0.4f)
+        d.screenshot("07-fight-$i")
+    }
+    scene.close()
 }
