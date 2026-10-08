@@ -99,7 +99,10 @@ fun BattleScreen(
         // Decode every sheet this match can show before the first frame.
         Sprites.preload(
             (battle.player.hand + battle.player.queue + battle.enemy.hand + battle.enemy.queue).map { it.id } +
-                listOf("tower_princess", "tower_king", "archers", "kingtop"),
+                listOf(
+                    "tower_princess", "tower_king", "archers", "kingtop", "rubble_princess", "rubble_king",
+                    "fireball_fly", "prop_tree", "prop_pine", "prop_rock", "prop_bush",
+                ),
         )
         audio.music(true)
         var fastMusic = false
@@ -234,22 +237,6 @@ fun BattleScreen(
                     }
                     drawBattle(battle, transform, ghost, armed = dragged ?: me.hand.getOrNull(selected))
                 }
-            // While a card is picked up, say what to do with it.
-                val picked = me.hand.getOrNull(selected)
-                if (picked != null && dragIndex < 0 && battle.outcome == null) {
-                    OutlinedText(
-                        "Tap the arena to place ${picked.name} · hold to aim",
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 10.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color(0xE6142440))
-                            .border(2.dp, Palette.Gold, RoundedCornerShape(50))
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                    )
-                }
                 notice?.let { (text, until) ->
                     if (battle.time < until) {
                         OutlinedText(
@@ -367,7 +354,9 @@ private fun TopBar(
                 fontSize = 26.sp,
                 color = if (overtime || secs <= 10) Palette.Gold else Color.White,
             )
-            if (doubleElixir) OutlinedText("x2 ELIXIR", fontSize = 11.sp, color = Palette.Elixir)
+            // Always laid out (just invisible before the last minute) so the top bar never changes
+            // height: that would resize the arena and make it zoom mid-match.
+            OutlinedText("x2 ELIXIR", fontSize = 11.sp, color = Palette.Elixir, modifier = Modifier.alpha(if (doubleElixir) 1f else 0f))
         }
         NamePlate("You", playerCrowns, Palette.Blue, Modifier.weight(1f), Alignment.End)
     }

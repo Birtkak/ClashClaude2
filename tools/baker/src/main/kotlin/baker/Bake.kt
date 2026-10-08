@@ -86,7 +86,7 @@ private fun headings(m: SpriteModel): List<Float> =
 
 private fun bakeSheet(model: SpriteModel, cam: Camera): SheetInfo {
     val poses = framesOf(model)
-    val teams = TeamColor.entries
+    val teams = if (model.teamless) listOf(TeamColor.BLUE) else TeamColor.entries
     // Build every pose once per team; the soup is the same for every facing.
     val soups = teams.associateWith { team -> poses.map { p -> Sculpt().also { model.build(it, p, team) }.soup } }
     val dirs = headings(model)

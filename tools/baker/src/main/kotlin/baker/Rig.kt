@@ -116,8 +116,8 @@ open class Humanoid(
     fun Sculpt.face(r: Float, eyeY: Float = 0.02f, eyeGap: Float = 0.38f) {
         for (side in listOf(-1f, 1f)) {
             at(side * r * eyeGap, r * eyeY, r * 0.9f) {
-                blob(r * 0.13f, r * 0.17f, r * 0.08f, C.black)
-                at(r * 0.03f, r * 0.05f, r * 0.05f) { ball(r * 0.045f, C.eyeWhite, 8) }
+                blob(r * 0.15f, r * 0.2f, r * 0.08f, C.black)
+                at(r * 0.035f, r * 0.06f, r * 0.05f) { ball(r * 0.055f, C.eyeWhite, 8) }
             }
         }
         at(0f, -r * 0.18f, r * 0.97f) { ball(r * 0.11f, skin.darker(0.92f), 10) }

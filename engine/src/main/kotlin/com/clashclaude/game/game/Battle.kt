@@ -215,9 +215,14 @@ enum class EffectKind {
     EXPLOSION,
     /** Melee weapon slash on the target. */
     SLASH,
-    /** Freeze spell zone: an icy area with a giant AC unit blowing cold air, for the whole freeze. */
+    /** Freeze spell zone: an icy area with the ice crystal overhead, for the whole freeze. */
     FREEZE,
+    /** A unit that just died: its last frame keels over and fades ([Effect.body] says which). */
+    DEATH,
 }
+
+/** What a [EffectKind.DEATH] effect shows: the dead unit's card, side, facing and whether it flew. */
+class Body(val cardId: String, val team: Team, val heading: Float, val flying: Boolean)
 
 class Effect(
     val kind: EffectKind,
@@ -230,6 +235,7 @@ class Effect(
     val y2: Float = 0f,
     /** Height above the ground (tiles) of the effect's start point, e.g. the top of a Tesla. */
     val lift: Float = 0f,
+    val body: Body? = null,
 ) {
     var age = 0f
     val progress: Float get() = (age / duration).coerceIn(0f, 1f)
@@ -1037,6 +1043,9 @@ class Battle(
         if (dead.isEmpty()) return
         for (d in dead) {
             effects += Effect(EffectKind.PUFF, d.x, d.y, d.radius * 1.6f, 0xAAFFFFFF, 0.4f)
+            d.card?.let { card ->
+                effects += Effect(EffectKind.DEATH, d.x, d.y, d.radius, 0, 0.55f, body = Body(card.id, d.team, d.heading, d.flying))
+            }
             d.card?.let { card ->
                 if (card.deathSpawnCount > 0 && card.spawnId != null) spawnAround(d, card.spawnId, card.deathSpawnCount)
             }

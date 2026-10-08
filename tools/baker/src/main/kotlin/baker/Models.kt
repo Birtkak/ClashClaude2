@@ -25,6 +25,9 @@ abstract class SpriteModel(
      */
     open val scale: Float = 1.35f
 
+    /** Scenery that looks the same for both sides: only the "blue" sheet is baked. */
+    open val teamless: Boolean = false
+
     abstract fun build(s: Sculpt, p: Pose, team: TeamColor)
 }
 
@@ -121,11 +124,11 @@ class Archer(val team: TeamColor) : Humanoid(
     override fun Sculpt.leftHand(p: Pose) {
         // The bow: an arc in the hand's XZ... held upright, string toward the body.
         at(0f, 0f, 0f, rx = 90f) {
-            val r = 0.32f
-            surface(14, 6, false, C.wood) { u, v, o ->
+            val r = 0.44f
+            surface(16, 6, false, C.wood) { u, v, o ->
                 val a = (-1.1f + 2.2f * u)
                 val b = (v * 2 * PI).toFloat()
-                val th = 0.022f * (1.2f - 0.6f * kotlin.math.abs(a))
+                val th = 0.032f * (1.2f - 0.6f * kotlin.math.abs(a))
                 val rr = r + th * cos(b)
                 o[0] = th * sin(b); o[1] = rr * sin(a); o[2] = rr * cos(a) - r
             }
@@ -258,7 +261,7 @@ class Skeleton(val team: TeamColor) : Humanoid(
 // ------------------------------------------------------------------------ Minion
 
 class Minion(val team: TeamColor) : SpriteModel("minions") {
-    private val body = Mat(0x4F6E9E)
+    private val body = Mat(0x7584C9)
 
     override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
         val flap = when (p.anim) {
@@ -467,6 +470,102 @@ class FreezeIcon : SpriteModel("freeze", 1, 0, 0, 1) {
     }
 }
 
+// ------------------------------------------------------------------------ Rubble, flying fireball, scenery
+
+/** What's left of a destroyed tower: a broken stump of wall and scattered blocks. */
+class Rubble(id: String, private val size: Float) : SpriteModel(id, 1, 0, 0, 1) {
+    override val scale = 1f
+
+    override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
+        val r = size
+        at(0f, 0f, 0f) { tube(r * 1.05f, r * 0.95f, 0.18f, C.stoneDark, 12) }
+        // Jagged remains of the wall, higher at the back.
+        for (i in 0 until 9) {
+            val a = (i * 2 * PI / 9).toFloat()
+            val h = 0.35f + 0.5f * ((i * 37) % 7) / 7f + 0.3f * (if (cos(a) < 0f) 1f else 0f)
+            at(r * 0.82f * sin(a), 0.15f + h / 2, r * 0.82f * cos(a), ry = a * 57.3f, rz = ((i * 13) % 9 - 4) * 3f) {
+                box(r * 0.55f, h, 0.32f, if (i % 3 == 0) C.stoneDark else C.stone, 0.3f)
+            }
+        }
+        // Fallen blocks on the ground and a torn team banner.
+        for (i in 0 until 7) {
+            val a = (i * 2.4f)
+            val d = r * (0.25f + 0.1f * (i % 4))
+            at(d * sin(a), 0.22f, d * cos(a), rx = i * 23f, ry = i * 41f) { box(0.36f, 0.24f, 0.3f, C.stone, 0.35f) }
+        }
+        at(r * 0.2f, 0.22f, r * 0.45f, rx = -80f, rz = 15f) {
+            slab(listOf(-0.25f to 0.3f, 0.25f to 0.3f, 0.2f to -0.15f, 0.05f to -0.05f, -0.1f to -0.25f, -0.25f to -0.1f), 0.03f, team.mat)
+        }
+    }
+}
+
+/** The Fireball spell in flight: a blazing ball with flames streaming back from its heading. */
+class FireballFlight : SpriteModel("fireball_fly", idleFrames = 4, walkFrames = 0, attackFrames = 0) {
+    override val scale = 1.2f
+    override val teamless = true
+
+    override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
+        val flicker = sin(p.phase * 2 * PI).toFloat()
+        at(0f, 0.6f, 0f) {
+            for (i in 0 until 6) {
+                val a = (i * PI / 3).toFloat() + p.phase * 1.2f
+                at(0.16f * sin(a), 0.16f * cos(a), -0.1f, rx = 180f - 8f * cos(a), ry = 8f * sin(a)) {
+                    tube(0.2f, 0f, 0.7f + 0.15f * ((i + (p.phase * 4).toInt()) % 3), Mat(if (i % 2 == 0) 0xFF5722 else 0xFF9800, emissive = true), 10)
+                }
+            }
+            ball(0.36f + 0.02f * flicker, Mat(0xFF7A1A, emissive = true))
+            at(0f, 0.05f, 0.12f) { ball(0.25f, Mat(0xFFB74D, emissive = true)) }
+            at(0f, 0.08f, 0.22f) { ball(0.13f, Mat(0xFFF3C4, emissive = true)) }
+        }
+    }
+}
+
+class Tree(id: String, private val variant: Int) : SpriteModel(id, 1, 0, 0, 1) {
+    override val scale = 1f
+    override val teamless = true
+
+    override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
+        if (variant == 0) {
+            // Round leafy tree.
+            tube(0.16f, 0.12f, 0.9f, Mat(0x7A4A26), 10)
+            at(0f, 1.25f, 0f) { ball(0.62f, Mat(0x4FA83D)) }
+            at(-0.38f, 1.0f, 0.15f) { ball(0.42f, Mat(0x5DBB47)) }
+            at(0.36f, 1.05f, 0.1f) { ball(0.45f, Mat(0x469A36)) }
+            at(0.05f, 1.65f, 0.1f) { ball(0.36f, Mat(0x6CC955)) }
+        } else {
+            // Pine.
+            tube(0.12f, 0.1f, 0.5f, Mat(0x6B4220), 8)
+            for (i in 0 until 3) at(0f, 0.4f + i * 0.45f, 0f) {
+                tube(0.68f - i * 0.16f, 0f, 0.85f, Mat(if (i % 2 == 0) 0x2E7D32 else 0x388E3C), 12)
+            }
+        }
+    }
+}
+
+class Rock(id: String) : SpriteModel(id, 1, 0, 0, 1) {
+    override val scale = 1f
+    override val teamless = true
+
+    override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
+        at(0f, 0.22f, 0f) { blob(0.5f, 0.32f, 0.42f, Mat(0x9AA0A8), 0.7f) }
+        at(0.42f, 0.13f, 0.2f) { blob(0.26f, 0.18f, 0.24f, Mat(0x868C95), 0.7f) }
+        at(-0.3f, 0.5f, -0.05f) { blob(0.12f, 0.06f, 0.12f, Mat(0x6DBE45)) }
+    }
+}
+
+class Bush(id: String) : SpriteModel(id, 1, 0, 0, 1) {
+    override val scale = 1f
+    override val teamless = true
+
+    override fun build(s: Sculpt, p: Pose, team: TeamColor) = with(s) {
+        for ((i, pos) in listOf(-0.3f to 0f, 0.3f to 0.05f, 0f to 0.2f, 0f to -0.15f).withIndex()) {
+            at(pos.first, 0.28f + 0.05f * (i % 2), pos.second) { ball(0.34f - 0.03f * i, Mat(if (i % 2 == 0) 0x55B044 else 0x479C38)) }
+        }
+        at(0.15f, 0.55f, 0.25f) { ball(0.06f, Mat(0xF06292)) }
+        at(-0.2f, 0.5f, 0.2f) { ball(0.05f, Mat(0xFFF176)) }
+    }
+}
+
 /** Everything the game draws from a sprite sheet, plus portrait-only spell icons. */
 object Models {
     val sprites: List<SpriteModel> = listOf(
@@ -480,6 +579,13 @@ object Models {
         KingTop(),
         PrincessTower(),
         KingTower(),
+        Rubble("rubble_princess", 1.2f),
+        Rubble("rubble_king", 1.7f),
+        FireballFlight(),
+        Tree("prop_tree", 0),
+        Tree("prop_pine", 1),
+        Rock("prop_rock"),
+        Bush("prop_bush"),
     )
 
     val spellIcons: List<SpriteModel> = listOf(FireballIcon(), ZapIcon(), FreezeIcon())

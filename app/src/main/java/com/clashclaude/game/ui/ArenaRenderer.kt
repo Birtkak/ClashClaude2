@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -178,7 +179,10 @@ fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed
     }
 
     for (r in battle.rubble) {
-        Pen(this, t.sx(r.x), t.sy(r.y) - t.depth * 0.4f, s * 0.9f).rubble(r.kind == Kind.KING_TOWER)
+        val king = r.kind == Kind.KING_TOWER
+        if (!drawSprite(if (king) "rubble_king" else "rubble_princess", t.isBlue(r.team), PI.toFloat() / 2, 0, t.sx(r.x), t.sy(r.y), s)) {
+            Pen(this, t.sx(r.x), t.sy(r.y) - t.depth * 0.4f, s * 0.9f).rubble(king)
+        }
     }
 
     // Ground shadows and team rings first, so every body stands on top of them.
@@ -243,6 +247,8 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
         drawLine(RiverLight, Offset(t.sx(wx), t.sy(wy)), Offset(t.sx(wx + 0.8f), t.sy(wy)), strokeWidth = s * 0.07f, cap = StrokeCap.Round)
     }
 
+    drawScenery(t)
+
     // Bridges: plank decks with a little thickness and side rails.
     for (bx in Arena.BRIDGES) {
         val y0 = Arena.RIVER_TOP - 0.35f
@@ -261,6 +267,26 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
         for (edge in listOf(tl.x + s * 0.06f, tl.x + w - s * 0.06f)) {
             drawLine(BridgeDark, Offset(edge, tl.y - t.rise * 0.25f), Offset(edge, tl.y + h - t.rise * 0.25f), strokeWidth = s * 0.12f, cap = StrokeCap.Round)
         }
+    }
+}
+
+/**
+ * Trees, rocks and bushes around the arena. Positions are in screen terms (the far edge is
+ * always at the top), so they stay put whichever side the viewer plays.
+ */
+private val Scenery = listOf(
+    Triple("prop_pine", 0.6f, -1.1f), Triple("prop_tree", 2.6f, -0.7f), Triple("prop_bush", 4.6f, -0.35f),
+    Triple("prop_tree", 6.2f, -1.2f), Triple("prop_pine", 12.1f, -1.25f), Triple("prop_bush", 13.5f, -0.4f),
+    Triple("prop_tree", 15.4f, -0.8f), Triple("prop_pine", 17.4f, -1.0f), Triple("prop_rock", 8.0f, -0.25f),
+    Triple("prop_bush", 0.25f, 14.4f), Triple("prop_rock", 17.75f, 14.5f),
+    Triple("prop_rock", 0.3f, 32.55f), Triple("prop_bush", 17.6f, 32.5f),
+)
+
+private fun DrawScope.drawScenery(t: ArenaTransform) {
+    for ((id, x, y) in Scenery.sortedBy { it.third }) {
+        val wx = if (t.flipped) Arena.WIDTH - x else x
+        val wy = if (t.flipped) Arena.HEIGHT - y else y
+        drawSprite(id, true, PI.toFloat() / 2, 0, t.sx(wx), t.sy(wy), t.scale)
     }
 }
 
@@ -484,7 +510,11 @@ private fun DrawScope.drawSpells(battle: Battle, t: ArenaTransform) {
                 Offset(pos.x + back.x / bl * s * 0.32f * i, pos.y + back.y / bl * s * 0.32f * i),
             )
         }
-        Pen(this, pos.x, pos.y, s * 1.5f).spellIcon(sp.card.id, battle.time)
+        val heading = t.heading(atan2(sp.ty - sp.startY, sp.tx - sp.startX))
+        val frame = (battle.time * 12f).toInt() % 4
+        if (sp.card.id != "fireball" || !drawSprite("fireball_fly", true, heading, frame, pos.x, pos.y + 0.6f * 1.2f * t.rise, s)) {
+            Pen(this, pos.x, pos.y, s * 1.5f).spellIcon(sp.card.id, battle.time)
+        }
     }
 }
 
@@ -561,6 +591,19 @@ private fun DrawScope.drawEffects(battle: Battle, t: ArenaTransform) {
                 val bob = sin(e.age * 3f) * t.rise * 0.15f
                 if (!drawPicture("card_freeze", center.x, center.y - t.rise * 3.6f + bob, s * 2.2f, fade)) {
                     Pen(this, center.x, center.y - t.rise * 3.6f + bob, s * 1.8f, alpha = fade).spellIcon("freeze", e.age)
+                }
+            }
+            EffectKind.DEATH -> e.body?.let { b ->
+                // The unit keels over sideways and fades out; flyers drop to the ground first.
+                val heading = t.heading(b.heading)
+                val side = if (cos(heading) >= 0f) 1f else -1f
+                val fall = if (b.flying) FLY_HEIGHT * (1f - min(1f, p * 1.6f)).let { it * it } else 0f
+                val feet = Offset(center.x, center.y - fall * t.rise)
+                val sheet = Sprites.sheet(b.cardId)
+                if (sheet != null) {
+                    withTransform({ rotate(side * 75f * min(1f, p * 1.8f), feet) }) {
+                        drawSprite(b.cardId, t.isBlue(b.team), heading, 0, feet.x, feet.y, s, alpha = (1f - p) * 0.9f, flash = p < 0.12f)
+                    }
                 }
             }
             EffectKind.LINE -> {

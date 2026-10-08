@@ -133,4 +133,19 @@ class DragDeployTest {
         val knight = battle.entities.last { it.team == Team.PLAYER && it.kind == Kind.TROOP }
         assertTrue("knight follows the slide to the right, x=${knight.x}", knight.x > 12f)
     }
+
+    @Test
+    fun arenaKeepsItsSizeWhenDoubleElixirStarts() {
+        val battle = knightBattle()
+        val before = rule.onNodeWithTag("arena").fetchSemanticsNode().boundsInRoot
+        // Fast-forward the match into the last minute.
+        while (!battle.doubleElixir) {
+            battle.enemy.elixir = 0f
+            battle.update(0.5f)
+        }
+        rule.mainClock.advanceTimeBy(200)
+        shot("double-elixir")
+        val after = rule.onNodeWithTag("arena").fetchSemanticsNode().boundsInRoot
+        assertEquals("the arena must not resize (zoom) mid-match", before, after)
+    }
 }

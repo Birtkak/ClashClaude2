@@ -641,22 +641,6 @@ private fun MoreTab(repo: DeckRepository, audio: GameAudio, onAudioSettings: (Bo
             }
         }
         Panel {
-            SectionTitle("How to play")
-            val tips = listOf(
-                "Tap a card to pick it up, then tap the arena to drop it there, or hold and slide to aim first. You can also drag a card straight from your hand. The highlighted tile shows exactly where it lands.",
-                "Cards cost elixir. It refills over time, twice as fast in the last minute.",
-                "Destroy princess towers for crowns. Taking the king tower wins instantly.",
-                "Once you destroy a princess tower, you can place troops further forward on that side.",
-                "Ranged troops and buildings show their attack range while you drag them.",
-            )
-            for (t in tips) {
-                Row {
-                    Text("•", color = Palette.Gold, fontWeight = FontWeight.Black, modifier = Modifier.padding(end = 8.dp))
-                    Text(t, color = Color.White, fontSize = 14.sp)
-                }
-            }
-        }
-        Panel {
             SectionTitle("Design your own cards")
             Text(
                 "Use the Card Forge to send Claude new card ideas or rebalance existing ones.",

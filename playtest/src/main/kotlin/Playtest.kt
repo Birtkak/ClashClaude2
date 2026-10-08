@@ -123,6 +123,11 @@ fun main(args: Array<String>) {
             }
             drawSprite("tower_princess", true, 1.57f, 0, 220f, H - 120f, tile)
             drawSprite("tower_king", false, 1.57f, 0, 650f, H - 120f, tile)
+            drawSprite("rubble_princess", true, 1.57f, 0, 220f, H - 420f, tile)
+            drawSprite("rubble_king", false, 1.57f, 0, 650f, H - 450f, tile)
+            for ((k, id) in listOf("prop_tree", "prop_pine", "prop_rock", "prop_bush", "fireball_fly").withIndex()) {
+                drawSprite(id, true, if (id == "fireball_fly") 0.5f else 1.57f, 0, 920f, H - 120f - k * 150f, tile)
+            }
         }
     }
     Driver(gallery, out).screenshot("00-gallery")
@@ -244,5 +249,10 @@ private fun stagedNewCards(out: File, density: Density) {
     put(P, "fireball", 4.5f, 13f)
     d.wait(0.5f)
     d.screenshot("08-new-cards-3")
+    // A tower falls and a unit dies: rubble and the death animation.
+    battle.entities.first { it.team == E && it.kind == com.clashclaude.game.game.Kind.PRINCESS_TOWER && it.x > 9f }.hp = 0f
+    battle.entities.firstOrNull { it.team == E && it.card?.id == "wizard" }?.hp = 0f
+    d.wait(0.2f)
+    d.screenshot("08-new-cards-4-death")
     scene.close()
 }
