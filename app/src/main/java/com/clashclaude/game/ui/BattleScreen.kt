@@ -266,7 +266,7 @@ private fun HandBar(
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.weight(0.7f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Next", color = Palette.TextDim, fontSize = 11.sp)
-                side.next?.let { CardTile(it, showName = false, modifier = Modifier.fillMaxWidth()) }
+                side.next?.let { CardTile(it, showName = false, showCost = false, modifier = Modifier.fillMaxWidth()) }
             }
             for (i in 0 until 4) {
                 val card = side.hand[i]
@@ -445,7 +445,7 @@ private fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: CardD
     )
     val wave = (battle.time * 0.6f) % 2f
     for (i in 0 until 10) {
-        val wx = (i * 2f + wave) % Arena.WIDTH
+        val wx = (i * 2f + wave) % (Arena.WIDTH - 0.8f)
         drawLine(
             RiverLight,
             Offset(t.sx(wx), t.sy(Arena.RIVER_MID - 0.3f + (i % 2) * 0.6f)),

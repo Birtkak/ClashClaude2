@@ -34,6 +34,7 @@ fun CardTile(
     dimmed: Boolean = false,
     highlighted: Boolean = false,
     showName: Boolean = true,
+    showCost: Boolean = true,
 ) {
     val shape = RoundedCornerShape(10.dp)
     BoxWithConstraints(
@@ -54,7 +55,7 @@ fun CardTile(
             fontSize = emojiSize,
             modifier = Modifier.align(Alignment.Center).offset(y = -w * 0.04f),
         )
-        Box(
+        if (showCost) Box(
             Modifier
                 .padding(3.dp)
                 .size(badge)
