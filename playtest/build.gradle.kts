@@ -7,9 +7,10 @@ plugins {
 // Compile the app's own sources; tiny stubs in src/main/kotlin/stubs stand in for the
 // few Android-only APIs they touch (Paint, Context, BackHandler).
 val app = "../app/src/main/java/com/clashclaude/game"
+val engine = "../engine/src/main/kotlin"
 sourceSets {
     main {
-        kotlin.srcDirs("$app/data", "$app/game", "$app/ui")
+        kotlin.srcDirs(engine, "$app/data", "$app/ui")
     }
 }
 

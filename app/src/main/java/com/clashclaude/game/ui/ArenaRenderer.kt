@@ -32,12 +32,23 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Maps arena tiles to canvas pixels. Updated every draw. */
-class ArenaTransform {
+/**
+ * Maps arena tiles to canvas pixels as seen by [viewer], whose side is always drawn at the
+ * bottom: for [Team.ENEMY] the arena is turned 180 degrees.
+ */
+class ArenaTransform(val viewer: Team = Team.PLAYER) {
     var scale = 1f
     var ox = 0f
     var oy = 0f
     var originInRoot = Offset.Zero
+
+    /** How far (0..1) this frame is from the previous simulation tick to the current one. */
+    var alpha = 1f
+
+    val flipped: Boolean get() = viewer == Team.ENEMY
+
+    /** +1, or -1 when flipped: multiply world-space directions by this to get screen directions. */
+    val dir: Float get() = if (flipped) -1f else 1f
 
     /** Fits the arena into a canvas of this size. Called at layout time, so touch input never
      *  depends on whether a frame has been drawn yet. */
@@ -47,10 +58,21 @@ class ArenaTransform {
         oy = (height - (Arena.HEIGHT + TOP_MARGIN) * scale) / 2f + TOP_MARGIN * scale
     }
 
-    fun sx(x: Float) = ox + x * scale
-    fun sy(y: Float) = oy + y * scale
-    fun worldX(px: Float) = (px - ox) / scale
-    fun worldY(py: Float) = (py - oy) / scale
+    fun sx(x: Float) = ox + (if (flipped) Arena.WIDTH - x else x) * scale
+    fun sy(y: Float) = oy + (if (flipped) Arena.HEIGHT - y else y) * scale
+    fun worldX(px: Float) = ((px - ox) / scale).let { if (flipped) Arena.WIDTH - it else it }
+    fun worldY(py: Float) = ((py - oy) / scale).let { if (flipped) Arena.HEIGHT - it else it }
+
+    /** Screen top-left of the world rectangle [x0, x0 + w] x [y0, y0 + h]. */
+    fun topLeft(x0: Float, y0: Float, w: Float, h: Float) =
+        Offset(min(sx(x0), sx(x0 + w)), min(sy(y0), sy(y0 + h)))
+
+    /** Blue for the viewer's units, red for the opponent's. */
+    fun colorOf(team: Team) = if (team == viewer) PlayerColor else EnemyColor
+
+    /** Where to draw a unit this frame, between its last two simulated positions. */
+    fun ix(c: Combatant) = sx(c.prevX + (c.x - c.prevX) * alpha)
+    fun iy(c: Combatant) = sy(c.prevY + (c.y - c.prevY) * alpha)
 }
 
 /** A card being dragged over the arena: where it would land and how long until it's affordable. */
@@ -82,8 +104,6 @@ private val Dashed = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
 /** Extra space (tiles) above the arena for the enemy king tower. */
 private const val TOP_MARGIN = 1.8f
 
-fun teamColor(team: Team) = if (team == Team.PLAYER) PlayerColor else EnemyColor
-
 private fun DrawScope.label(text: String, cx: Float, cy: Float, size: Float, color: Int = android.graphics.Color.WHITE) {
     labelPaint.textSize = size
     labelPaint.color = color
@@ -105,7 +125,7 @@ private const val DROP_HEIGHT = 3f
 private const val FLY_HEIGHT = 0.9f
 
 /** Builds this frame's animation pose from the unit's simulation state. */
-private fun poseOf(c: Combatant, time: Float): Pose {
+private fun poseOf(c: Combatant, time: Float, dir: Float): Pose {
     val t = c.sinceAttack
     val swing = when {
         t < 0.1f -> 1f - 2f * (t / 0.1f)
@@ -114,7 +134,7 @@ private fun poseOf(c: Combatant, time: Float): Pose {
         else -> 0f
     }
     val forward = (c.aimX - c.x) * c.faceX
-    val aim = if (c.target == null) 0f else atan2(c.aimY - c.y, max(0.3f, forward))
+    val aim = if (c.target == null) 0f else atan2((c.aimY - c.y) * dir, max(0.3f, forward))
     return Pose(
         walk = c.walkCycle * (2f * PI.toFloat() / 0.7f),
         moving = c.moving,
@@ -142,8 +162,8 @@ fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed
             for (tx in 0 until Arena.WIDTH.toInt()) {
                 val cx = tx + 0.5f
                 val cy = ty + 0.5f
-                if (!battle.inDeployZone(Team.PLAYER, cx, cy) || Arena.inRiver(cy)) {
-                    drawRect(red, Offset(t.sx(tx.toFloat()), t.sy(ty.toFloat())), Size(s + 0.5f, s + 0.5f))
+                if (!battle.inDeployZone(t.viewer, cx, cy) || Arena.inRiver(cy)) {
+                    drawRect(red, t.topLeft(tx.toFloat(), ty.toFloat(), 1f, 1f), Size(s + 0.5f, s + 0.5f))
                 }
             }
         }
@@ -154,12 +174,12 @@ fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed
     }
 
     // Ground layer, back to front so nearer things overlap farther ones.
-    val ground = battle.entities.filter { !it.flying }.sortedBy { it.y }
-    val air = battle.entities.filter { it.flying }.sortedBy { it.y }
+    val ground = battle.entities.filter { !it.flying }.sortedBy { t.sy(it.y) }
+    val air = battle.entities.filter { it.flying }.sortedBy { t.sy(it.y) }
     for (c in air) {
         drawOval(
             Color(0x40000000),
-            topLeft = Offset(t.sx(c.x - c.radius), t.sy(c.y - c.radius * 0.35f)),
+            topLeft = Offset(t.ix(c) - c.radius * s, t.iy(c) - c.radius * 0.35f * s),
             size = Size(c.radius * 2 * s, c.radius * 0.7f * s),
         )
     }
@@ -184,7 +204,7 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
         for (tx in 0 until Arena.WIDTH.toInt()) {
             drawRect(
                 if ((tx + ty) % 2 == 0) GrassA else GrassB,
-                topLeft = Offset(t.sx(tx.toFloat()), t.sy(ty.toFloat())),
+                topLeft = t.topLeft(tx.toFloat(), ty.toFloat(), 1f, 1f),
                 size = Size(s + 0.5f, s + 0.5f),
             )
         }
@@ -199,7 +219,7 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
     }
     drawRect(
         River,
-        topLeft = Offset(t.sx(0f), t.sy(Arena.RIVER_TOP)),
+        topLeft = t.topLeft(0f, Arena.RIVER_TOP, Arena.WIDTH, Arena.RIVER_BOTTOM - Arena.RIVER_TOP),
         size = Size(Arena.WIDTH * s, (Arena.RIVER_BOTTOM - Arena.RIVER_TOP) * s),
     )
     val wave = (battle.time * 0.6f) % 2f
@@ -209,10 +229,11 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
         drawLine(RiverLight, Offset(t.sx(wx), t.sy(wy)), Offset(t.sx(wx + 0.8f), t.sy(wy)), strokeWidth = s * 0.08f)
     }
     for (bx in Arena.BRIDGES) {
-        val left = t.sx(bx - Arena.BRIDGE_HALF_WIDTH)
-        val top = t.sy(Arena.RIVER_TOP - 0.3f)
         val w = Arena.BRIDGE_HALF_WIDTH * 2 * s
         val h = (Arena.RIVER_BOTTOM - Arena.RIVER_TOP + 0.6f) * s
+        val corner = t.topLeft(bx - Arena.BRIDGE_HALF_WIDTH, Arena.RIVER_TOP - 0.3f, w / s, h / s)
+        val left = corner.x
+        val top = corner.y
         drawRect(Bridge, Offset(left, top), Size(w, h))
         var py = Arena.RIVER_TOP - 0.3f
         while (py < Arena.RIVER_BOTTOM + 0.3f) {
@@ -229,28 +250,31 @@ private fun DrawScope.drawTowerBody(c: Combatant, t: ArenaTransform, time: Float
     val forward = if (c.team == Team.PLAYER) -1f else 1f
     val dx = if (c.target != null) c.aimX - c.x else 0.4f * forward
     val dy = if (c.target != null) c.aimY - c.y else forward
-    Pen(this, t.sx(c.x), t.sy(c.y), t.scale).tower(king, teamColor(c.team), dx, dy, poseOf(c, time))
+    val s = t.scale
+    val cx = t.sx(c.x)
+    val cy = t.sy(c.y)
+    Pen(this, cx, cy, s).tower(king, t.colorOf(c.team), dx * t.dir, dy * t.dir, poseOf(c, time, t.dir))
     if (c.hitFlash > 0f) {
-        drawCircle(Color(0x55FFFFFF), c.radius * t.scale, Offset(t.sx(c.x), t.sy(c.y)))
+        drawCircle(Color(0x55FFFFFF), c.radius * s, Offset(cx, cy))
     }
     if (king && !c.active) {
         val bob = sin(time * 2f) * 0.1f
-        label("z Z", t.sx(c.x + 1.5f), t.sy(c.y - 1.9f + bob), t.scale * 0.55f)
+        label("z Z", cx + 1.5f * s, cy + (bob - 1.9f) * s, s * 0.55f)
     }
-    if (c.stunTimer > 0f) Pen(this, t.sx(c.x + 1f), t.sy(c.y - 2.3f), t.scale * 0.5f).spellIcon("zap", time)
+    if (c.stunTimer > 0f) Pen(this, cx + s, cy - 2.3f * s, s * 0.5f).spellIcon("zap", time)
 }
 
 private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
     val s = t.scale
     val id = c.card?.id ?: return
     val u = s * visualScale(c)
-    val fx = t.sx(c.x)
-    val groundY = t.sy(c.y) + c.radius * 0.45f * s
+    val fx = t.ix(c)
+    val groundY = t.iy(c) + c.radius * 0.45f * s
     // While deploying the unit drops in from above: a steady fall that eases into the landing.
     val fall = if (c.deploying) (c.deployTimer / Combatant.DEPLOY_TIME).coerceIn(0f, 1f) else 0f
     val dropHeight = fall * sqrt(fall) * DROP_HEIGHT
     val feetY = (if (c.flying) groundY - FLY_HEIGHT * s else groundY) - dropHeight * s
-    val color = teamColor(c.team)
+    val color = t.colorOf(c.team)
 
     // Team-colored base so friend/foe reads at a glance; while dropping it's the landing shadow.
     val baseR = c.radius * s * 1.05f * (1f - fall * 0.5f)
@@ -261,7 +285,7 @@ private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
     drawOval(color, baseTl, baseSize, style = Stroke(s * 0.06f))
 
     val frozen = c.frozenTimer > 0f
-    Pen(this, fx, feetY, u, c.faceX).unit(id, color, if (frozen) Pose(time = 0f) else poseOf(c, time))
+    Pen(this, fx, feetY, u, c.faceX * t.dir).unit(id, color, if (frozen) Pose(time = 0f) else poseOf(c, time, t.dir))
     if (frozen) {
         // Encased in ice: a translucent blue shell over the whole sprite with a few glints.
         val top = feetY + spriteTop(id) * u
@@ -306,24 +330,24 @@ private fun DrawScope.drawHealth(c: Combatant, t: ArenaTransform) {
     val s = t.scale
     if (c.isTower) {
         val top = if (c.kind == Kind.KING_TOWER) -1.7f else -1.35f
-        val y = t.sy(c.y + top) - s * 1.15f
-        drawBar(c, t.sx(c.x), y, c.radius * 1.5f * s)
+        val y = t.sy(c.y) + top * s - s * 1.15f
+        drawBar(c, t, t.sx(c.x), y, c.radius * 1.5f * s)
         label(c.hp.toInt().toString(), t.sx(c.x), y - s * 0.3f, s * 0.4f)
         return
     }
     if (c.deploying || (c.hp >= c.maxHp && c.kind != Kind.BUILDING)) return
     val id = c.card?.id ?: return
     val u = s * visualScale(c)
-    val groundY = t.sy(c.y) + c.radius * 0.45f * s
+    val groundY = t.iy(c) + c.radius * 0.45f * s
     val feetY = if (c.flying) groundY - FLY_HEIGHT * s else groundY
-    drawBar(c, t.sx(c.x), feetY + spriteTop(id) * u - s * 0.2f, max(c.radius * 2 * s, s * 0.8f))
+    drawBar(c, t, t.ix(c), feetY + spriteTop(id) * u - s * 0.2f, max(c.radius * 2 * s, s * 0.8f))
 }
 
-private fun DrawScope.drawBar(c: Combatant, cx: Float, top: Float, width: Float) {
+private fun DrawScope.drawBar(c: Combatant, t: ArenaTransform, cx: Float, top: Float, width: Float) {
     val h = max(4f, width * 0.12f).coerceAtMost(12f)
     val frac = (c.hp / c.maxHp).coerceIn(0f, 1f)
     drawRoundRect(Color(0xCC000000), Offset(cx - width / 2 - 1f, top - 1f), Size(width + 2f, h + 2f), CornerRadius(h / 2))
-    drawRoundRect(teamColor(c.team), Offset(cx - width / 2, top), Size(width * frac, h), CornerRadius(h / 2))
+    drawRoundRect(t.colorOf(c.team), Offset(cx - width / 2, top), Size(width * frac, h), CornerRadius(h / 2))
 }
 
 // ------------------------------------------------------------------ projectiles
@@ -339,14 +363,14 @@ private fun DrawScope.drawProjectile(p: Projectile, t: ArenaTransform, time: Flo
         else -> 0.2f
     }
     fun height(pr: Float) = p.launchHeight + (targetHeight - p.launchHeight) * pr + sin(PI.toFloat() * pr) * arc
-    val gx = t.sx(p.x)
-    val gy = t.sy(p.y)
+    val gx = t.sx(p.prevX + (p.x - p.prevX) * t.alpha)
+    val gy = t.sy(p.prevY + (p.y - p.prevY) * t.alpha)
     val px = gx
     val py = gy - height(prog) * s
 
     // Screen-space flight direction, including the arc, for orienting arrows and trails.
-    val dirGX = p.tx - p.startX
-    val dirGY = p.ty - p.startY
+    val dirGX = (p.tx - p.startX) * t.dir
+    val dirGY = (p.ty - p.startY) * t.dir
     val dist = max(0.01f, hypot(dirGX, dirGY))
     val dh = (height(min(1f, prog + 0.05f)) - height(max(0f, prog - 0.05f))) / 0.1f
     var vx = dirGX / dist * s
@@ -433,8 +457,8 @@ private fun DrawScope.drawSpells(battle: Battle, t: ArenaTransform) {
         when (sp.card.id) {
             "arrows" -> {
                 // A volley: several arrows flying in a loose cluster.
-                val dirX = sp.tx - sp.startX
-                val dirY = sp.ty - sp.startY
+                val dirX = (sp.tx - sp.startX) * t.dir
+                val dirY = (sp.ty - sp.startY) * t.dir
                 val d = max(0.01f, hypot(dirX, dirY))
                 val ang = atan2(dirY / d - (if (prog < 0.5f) 0.6f else -0.6f), dirX / d)
                 for (i in 0 until 9) {
@@ -467,7 +491,13 @@ private fun DrawScope.drawSpells(battle: Battle, t: ArenaTransform) {
 private fun DrawScope.drawEffects(battle: Battle, t: ArenaTransform) {
     val s = t.scale
     for (e in battle.effects) {
-        val color = Color(e.color.toInt())
+        // Effects are tinted in absolute team colors (blue = PLAYER); swap them when viewing as ENEMY.
+        val color = when {
+            !t.flipped -> Color(e.color.toInt())
+            e.color == Battle.teamColor(Team.PLAYER) -> EnemyColor
+            e.color == Battle.teamColor(Team.ENEMY) -> PlayerColor
+            else -> Color(e.color.toInt())
+        }
         val p = e.progress
         val center = Offset(t.sx(e.x), t.sy(e.y))
         when (e.kind) {
@@ -507,7 +537,7 @@ private fun DrawScope.drawEffects(battle: Battle, t: ArenaTransform) {
             }
             EffectKind.SLASH -> {
                 val r = e.radius * s * 1.3f
-                val from = atan2(e.y - e.y2, e.x - e.x2) * 180f / PI.toFloat()
+                val from = atan2((e.y - e.y2) * t.dir, (e.x - e.x2) * t.dir) * 180f / PI.toFloat()
                 drawArc(
                     Color.White.copy(alpha = 1f - p),
                     startAngle = from + 120f - p * 60f,
@@ -577,9 +607,10 @@ private fun DrawScope.drawGhost(battle: Battle, g: Ghost, t: ArenaTransform) {
         val tiles = if (g.card.type == CardType.BUILDING) 2 else 1
         val left = if (tiles == 2) g.x - 1f else kotlin.math.floor(g.x)
         val top = if (tiles == 2) g.y - 1f else kotlin.math.floor(g.y)
-        drawRect(tint.copy(alpha = 0.35f), Offset(t.sx(left), t.sy(top)), Size(tiles * s, tiles * s))
-        drawRect(tint, Offset(t.sx(left), t.sy(top)), Size(tiles * s, tiles * s), style = Stroke(s * 0.06f))
-        val proto = Combatant.fromCard(g.card, Team.PLAYER, g.x, g.y)
+        val corner = t.topLeft(left, top, tiles.toFloat(), tiles.toFloat())
+        drawRect(tint.copy(alpha = 0.35f), corner, Size(tiles * s, tiles * s))
+        drawRect(tint, corner, Size(tiles * s, tiles * s), style = Stroke(s * 0.06f))
+        val proto = Combatant.fromCard(g.card, t.viewer, g.x, g.y)
         val u = s * visualScale(proto)
         for ((x, y) in g.formation) {
             val fx = t.sx(x)

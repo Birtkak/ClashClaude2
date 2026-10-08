@@ -64,7 +64,9 @@ class Combatant(
     val lifetime: Float,
     val jumpsRiver: Boolean,
 ) {
-    val id: Int = nextId++
+    /** Unique within its battle; assigned by [Battle] when the unit enters the arena. */
+    var id: Int = 0
+        internal set
     var hp: Float = maxHp
     var cooldown = 0f
     var deployTimer = 0f
@@ -94,6 +96,10 @@ class Combatant(
     var aimX = x
     var aimY = y
 
+    /** Position at the start of the current tick, so renderers can interpolate between ticks. */
+    var prevX = x
+    var prevY = y
+
     // Ground pathing: current A* route toward the goal with this id, replanned periodically.
     var path: List<Pair<Float, Float>>? = null
     var pathIndex = 0
@@ -109,7 +115,6 @@ class Combatant(
     val value: Float get() = card?.let { it.cost.toFloat() / it.count } ?: 0f
 
     companion object {
-        private var nextId = 1
         const val DEPLOY_TIME = 1.3f
 
         fun fromCard(card: CardDef, team: Team, x: Float, y: Float) = Combatant(
@@ -158,6 +163,8 @@ class Projectile(
     var tx = target.x
     var ty = target.y
     var done = false
+    var prevX = x
+    var prevY = y
 
     /** 0 at launch, 1 on impact. */
     val progress: Float
@@ -248,7 +255,20 @@ class Side(val team: Team, deck: List<CardDef>, rng: Random) {
     }
 }
 
-class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Random = Random.Default) {
+/**
+ * The whole match simulation. It is deterministic for a given [rng] seed and sequence of
+ * [Command]s when advanced with [step], so a server can run it authoritatively and clients
+ * only need to render it.
+ *
+ * @param withAi when true the [Team.ENEMY] side is played by [AiController]; pass false
+ *   when both sides are people (multiplayer).
+ */
+class Battle(
+    playerDeck: List<CardDef>,
+    enemyDeck: List<CardDef>,
+    val rng: Random = Random.Default,
+    withAi: Boolean = true,
+) {
     val player = Side(Team.PLAYER, playerDeck, rng)
     val enemy = Side(Team.ENEMY, enemyDeck, rng)
     val entities = mutableListOf<Combatant>()
@@ -281,16 +301,30 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
     var outcome: Outcome? = null
         private set
 
-    val ai = AiController(this, enemy, rng)
+    val ai: AiController? = if (withAi) AiController(this, enemy, rng) else null
     private val pathfinder = Pathfinder(entities)
 
+    /** Number of fixed [step]s simulated so far. */
+    var tick = 0L
+        private set
+
+    private var lastId = 0
+    private val commands = ArrayList<Command>()
+
     init {
-        entities += Combatant.tower(true, Team.PLAYER, 9f, 29.5f)
-        entities += Combatant.tower(false, Team.PLAYER, 3.5f, 26f)
-        entities += Combatant.tower(false, Team.PLAYER, 14.5f, 26f)
-        entities += Combatant.tower(true, Team.ENEMY, 9f, 2.5f)
-        entities += Combatant.tower(false, Team.ENEMY, 3.5f, 6f)
-        entities += Combatant.tower(false, Team.ENEMY, 14.5f, 6f)
+        add(Combatant.tower(true, Team.PLAYER, 9f, 29.5f))
+        add(Combatant.tower(false, Team.PLAYER, 3.5f, 26f))
+        add(Combatant.tower(false, Team.PLAYER, 14.5f, 26f))
+        add(Combatant.tower(true, Team.ENEMY, 9f, 2.5f))
+        add(Combatant.tower(false, Team.ENEMY, 3.5f, 6f))
+        add(Combatant.tower(false, Team.ENEMY, 14.5f, 6f))
+    }
+
+    /** Puts a unit into the arena with the next id of this battle. */
+    private fun add(c: Combatant): Combatant {
+        c.id = ++lastId
+        entities += c
+        return c
     }
 
     fun side(team: Team): Side = if (team == Team.PLAYER) player else enemy
@@ -416,7 +450,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         }
 
         for ((ux, uy) in formation(team, card, x, y)) {
-            entities += Combatant.fromCard(card, team, ux, uy).apply { faceX = if (x < Arena.WIDTH / 2f) 1f else -1f }
+            add(Combatant.fromCard(card, team, ux, uy).apply { faceX = if (x < Arena.WIDTH / 2f) 1f else -1f })
         }
         effects += Effect(EffectKind.RING, x, y, 1.2f, teamColor(team), 0.5f)
         sound(Sfx.DEPLOY)
@@ -425,14 +459,56 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
 
     // ------------------------------------------------------------------ update
 
+    /** Queues a player's action; it takes effect at the start of the next [step]. */
+    fun submit(command: Command) {
+        commands += command
+    }
+
+    /**
+     * Advances the match by exactly one fixed tick of [TICK_SECONDS], after applying the
+     * queued commands in the order they were submitted. This is the only way a networked
+     * match should move forward, so every machine runs the same simulation.
+     */
+    fun step() {
+        val queued = commands.toList()
+        commands.clear()
+        for (cmd in queued) apply(cmd)
+        update(TICK_SECONDS)
+        tick++
+    }
+
+    /** Applies one command now. Returns false if it was rejected (e.g. not enough elixir). */
+    fun apply(command: Command): Boolean = when (command) {
+        is Command.PlayCard -> {
+            val index = side(command.team).hand.indexOfFirst { it.id == command.cardId }
+            index >= 0 && deploy(command.team, index, command.x, command.y)
+        }
+        is Command.Surrender -> {
+            surrender(command.team)
+            true
+        }
+    }
+
+    /**
+     * Advances the simulation by [dt] seconds. Tests and tools may call it directly; real
+     * matches go through [step] so the tick length is always the same.
+     */
     fun update(dt: Float) {
         if (outcome != null) return
+        for (c in entities) {
+            c.prevX = c.x
+            c.prevY = c.y
+        }
+        for (p in projectiles) {
+            p.prevX = p.x
+            p.prevY = p.y
+        }
         time += dt
         val regen = dt / ELIXIR_SECONDS * if (doubleElixir) 2f else 1f
         player.elixir = min(MAX_ELIXIR, player.elixir + regen)
         enemy.elixir = min(MAX_ELIXIR, enemy.elixir + regen)
 
-        ai.update(dt)
+        ai?.update(dt)
 
         // Iterate over a snapshot so deploys/kills during the loop are safe.
         for (c in entities.toList()) if (c.alive) updateCombatant(c, dt)
@@ -468,12 +544,47 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         outcome = if (player.crowns > enemy.crowns) Outcome.WIN else Outcome.LOSS
     }
 
-    /** Gives up the match (counts as a loss). */
-    fun surrender() {
-        if (outcome == null) {
-            enemy.crowns = 3
-            outcome = Outcome.LOSS
+    /** [team] gives up the match: the other side gets 3 crowns and the win. */
+    fun surrender(team: Team = Team.PLAYER) {
+        if (outcome != null) return
+        side(team.opponent).crowns = 3
+        outcome = if (team == Team.PLAYER) Outcome.LOSS else Outcome.WIN
+    }
+
+    /** The result as seen by [team] ([outcome] is always from [Team.PLAYER]'s point of view). */
+    fun outcomeFor(team: Team): Outcome? = when {
+        team == Team.PLAYER -> outcome
+        outcome == Outcome.WIN -> Outcome.LOSS
+        outcome == Outcome.LOSS -> Outcome.WIN
+        else -> outcome
+    }
+
+    /**
+     * Hash of the game state that matters for the result. Two machines running the same
+     * match should produce the same value at the same [tick]; a mismatch means a desync.
+     */
+    fun checksum(): Long {
+        var h = 1125899906842597L
+        fun mix(v: Long) { h = 31 * h + v }
+        fun mix(f: Float) = mix(f.toRawBits().toLong())
+        mix(tick)
+        for (s in listOf(player, enemy)) {
+            mix(s.elixir)
+            mix(s.crowns.toLong())
+            for (c in s.hand) mix(c.id.hashCode().toLong())
         }
+        for (c in entities) {
+            mix(c.id.toLong())
+            mix(c.x)
+            mix(c.y)
+            mix(c.hp)
+        }
+        for (p in projectiles) {
+            mix(p.x)
+            mix(p.y)
+        }
+        mix(spells.size.toLong())
+        return h
     }
 
     private fun updateCombatant(c: Combatant, dt: Float) {
@@ -883,10 +994,10 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             val x = (c.x + ring * cos(a)).coerceIn(0.5f, Arena.WIDTH - 0.5f)
             var y = (c.y + ring * sin(a)).coerceIn(0.5f, Arena.HEIGHT - 0.5f)
             if (Arena.inRiver(y)) y = if (c.y < Arena.RIVER_MID) Arena.RIVER_TOP else Arena.RIVER_BOTTOM
-            entities += Combatant.fromCard(card, c.team, x, y).apply {
+            add(Combatant.fromCard(card, c.team, x, y).apply {
                 deployTimer = 0.3f
                 faceX = c.faceX
-            }
+            })
         }
         effects += Effect(EffectKind.PUFF, c.x, c.y, c.radius * 1.4f, 0xAA9E9E9E, 0.35f)
         sound(Sfx.SPAWN)
@@ -933,6 +1044,9 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         const val OVERTIME = 60f
         const val MAX_ELIXIR = 10f
         const val ELIXIR_SECONDS = 2.8f
+
+        /** Length of one simulation tick ([step]): 30 ticks per second. */
+        const val TICK_SECONDS = 1f / 30f
 
         fun edgeDist(a: Combatant, b: Combatant): Float =
             hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius

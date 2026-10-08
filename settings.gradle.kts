@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ClashClaude"
-include(":app")
+include(":app", ":engine")

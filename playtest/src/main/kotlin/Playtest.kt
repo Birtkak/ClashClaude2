@@ -137,6 +137,8 @@ fun main(args: Array<String>) {
     gallery.close()
 
     stagedFight(out, density)
+    // The same fight seen by the other side (as a multiplayer opponent would): their units at the bottom, in blue.
+    stagedFight(out, density, com.clashclaude.game.game.Team.ENEMY, "07b-flipped")
     stagedNewCards(out, density)
 
     val deck = Cards.defaultDecks[0].mapNotNull { Cards.get(it) }
@@ -167,7 +169,12 @@ fun main(args: Array<String>) {
 }
 
 /** A staged clash in the player's left lane so projectiles, splash and melee are all on screen. */
-private fun stagedFight(out: File, density: Density) {
+private fun stagedFight(
+    out: File,
+    density: Density,
+    viewer: com.clashclaude.game.game.Team = com.clashclaude.game.game.Team.PLAYER,
+    name: String = "07-fight",
+) {
     fun deck(vararg ids: String) = ids.map { Cards.get(it)!! }
     val player = deck("wizard", "archers", "knight", "valkyrie", "musketeer", "minions", "bomber", "babydragon")
     val enemy = deck("giant", "barbarians", "minions", "goblins", "hogrider", "pekka", "speargoblins", "skeletons")
@@ -194,15 +201,16 @@ private fun stagedFight(out: File, density: Density) {
     battle.player.elixir = 0f
 
     val scene = ImageComposeScene(W, H, density) {
-        ClashTheme(DisplayFont) { BattleScreen(player, initialBattle = battle) {} }
+        ClashTheme(DisplayFont) { BattleScreen(player, initialBattle = battle, viewer = viewer) {} }
     }
     val d = Driver(scene, out)
     d.wait(0.45f)
-    d.screenshot("07-fight-0-dropping")
+    d.screenshot("$name-0-dropping")
     d.wait(5.5f)
     for (i in 1..4) {
         d.wait(0.4f)
-        d.screenshot("07-fight-$i")
+        d.screenshot("$name-$i")
+        if (viewer != com.clashclaude.game.game.Team.PLAYER) break
     }
     scene.close()
 }

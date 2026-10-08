@@ -23,11 +23,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -50,13 +47,15 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clashclaude.game.data.CardDef
 import com.clashclaude.game.data.Cards
 import com.clashclaude.game.game.Arena
 import com.clashclaude.game.game.Battle
+import com.clashclaude.game.game.Command
+import com.clashclaude.game.game.LocalMatch
+import com.clashclaude.game.game.Match
 import com.clashclaude.game.game.Outcome
 import com.clashclaude.game.game.Sfx
 import com.clashclaude.game.game.Team
@@ -65,14 +64,20 @@ import kotlin.math.ceil
 @Composable
 fun BattleScreen(
     playerDeck: List<CardDef>,
-    /** A pre-built battle to show instead of starting a new one (used by the playtest harness). */
+    /** A pre-built battle to show instead of starting a new one (used by tests and the playtest harness). */
     initialBattle: Battle? = null,
+    /** Which side this device plays; it is always drawn at the bottom. */
+    viewer: Team = Team.PLAYER,
+    opponentName: String = "Claude Bot",
     audio: GameAudio = GameAudio.Silent,
     onFinished: (Outcome) -> Unit,
 ) {
-    val battle = remember {
-        initialBattle ?: Battle(playerDeck, Cards.aiDecks.random().mapNotNull { Cards.get(it) })
+    val match: Match = remember {
+        LocalMatch(initialBattle ?: Battle(playerDeck, Cards.aiDecks.random().mapNotNull { Cards.get(it) }), viewer)
     }
+    val battle = match.battle
+    val me = battle.side(viewer)
+    val foe = battle.side(viewer.opponent)
     var frame by remember { mutableIntStateOf(0) }
     var selected by remember { mutableIntStateOf(-1) }
     var dragIndex by remember { mutableIntStateOf(-1) }
@@ -80,19 +85,19 @@ fun BattleScreen(
     var confirmLeave by remember { mutableStateOf(false) }
     // Short message shown over the arena, e.g. "Not enough elixir", until battle time `second`.
     var notice by remember { mutableStateOf<Pair<String, Float>?>(null) }
-    val transform = remember { ArenaTransform() }
+    val transform = remember { ArenaTransform(viewer) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     val cardOrigins = remember { Array(4) { Offset.Zero } }
 
-    LaunchedEffect(battle) {
+    LaunchedEffect(match) {
         audio.music(true)
         var fastMusic = false
         var last = withFrameNanos { it }
         while (battle.outcome == null) {
             withFrameNanos { now ->
-                val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.1f)
                 last = now
-                battle.update(dt)
+                transform.alpha = match.advance(dt)
                 battle.drainSounds().forEach(audio::play)
                 if (battle.doubleElixir != fastMusic) {
                     fastMusic = battle.doubleElixir
@@ -101,12 +106,13 @@ fun BattleScreen(
                 frame++
             }
         }
+        transform.alpha = 1f
         battle.drainSounds().forEach(audio::play)
         audio.music(false)
-        audio.play(if (battle.outcome == Outcome.WIN) Sfx.VICTORY else Sfx.DEFEAT)
+        audio.play(if (battle.outcomeFor(viewer) == Outcome.WIN) Sfx.VICTORY else Sfx.DEFEAT)
         frame++
     }
-    DisposableEffect(battle) {
+    DisposableEffect(match) {
         onDispose { audio.music(false) }
     }
 
@@ -127,7 +133,7 @@ fun BattleScreen(
     fun dropSpot(card: CardDef, rootPos: Offset): Pair<Float, Float>? {
         if (!inArena(rootPos)) return null
         val local = rootPos - transform.originInRoot
-        return battle.snapPlacement(Team.PLAYER, card, transform.worldX(local.x), transform.worldY(local.y))
+        return battle.snapPlacement(viewer, card, transform.worldX(local.x), transform.worldY(local.y))
     }
 
     /**
@@ -140,17 +146,18 @@ fun BattleScreen(
         return dropSpot(card, if (inArena(lifted)) lifted else dragPos)
     }
 
+    /** Sends a play to the match; it lands on the next tick (or when the server accepts it). */
     fun tryDeploy(index: Int, spot: Pair<Float, Float>?): Boolean {
-        val card = battle.player.hand.getOrNull(index) ?: return false
+        val card = me.hand.getOrNull(index) ?: return false
         val (x, y) = spot ?: return false
-        if (battle.player.elixir < card.cost) {
+        if (me.elixir < card.cost) {
             notice = "Not enough elixir!" to battle.time + 1.2f
             audio.play(Sfx.DENY)
             return false
         }
-        val ok = battle.deploy(Team.PLAYER, index, x, y)
-        battle.drainSounds().forEach(audio::play)
-        return ok
+        if (!battle.canPlace(viewer, card, x, y)) return false
+        match.send(Command.PlayCard(viewer, card.id, x, y))
+        return true
     }
 
     Box(
@@ -164,8 +171,9 @@ fun BattleScreen(
                 timeLeft = battle.timeLeft,
                 overtime = battle.overtime,
                 doubleElixir = battle.doubleElixir,
-                enemyCrowns = battle.enemy.crowns,
-                playerCrowns = battle.player.crowns,
+                opponentName = opponentName,
+                enemyCrowns = foe.crowns,
+                playerCrowns = me.crowns,
             )
             Box(
                 Modifier
@@ -179,46 +187,45 @@ fun BattleScreen(
                     .pointerInput(Unit) {
                         detectTapGestures { pos ->
                             val i = selected
-                            val card = battle.player.hand.getOrNull(i)
+                            val card = me.hand.getOrNull(i)
                             if (card != null && tryDeploy(i, dropSpot(card, pos + transform.originInRoot))) selected = -1
                         }
                     },
             ) {
                 Canvas(Modifier.fillMaxSize()) {
                     if (frame < 0) return@Canvas // Read the tick so the arena redraws every frame.
-                    val dragged = battle.player.hand.getOrNull(dragIndex)
+                    val dragged = me.hand.getOrNull(dragIndex)
                     val ghost = dragged?.let { card ->
                         dragSpot(card)?.let { (x, y) ->
                             Ghost(
                                 card, x, y,
-                                formation = battle.formation(Team.PLAYER, card, x, y),
-                                waitSeconds = battle.secondsUntilAffordable(battle.player, card),
+                                formation = battle.formation(viewer, card, x, y),
+                                waitSeconds = battle.secondsUntilAffordable(me, card),
                             )
                         }
                     }
-                    drawBattle(battle, transform, ghost, armed = dragged ?: battle.player.hand.getOrNull(selected))
+                    drawBattle(battle, transform, ghost, armed = dragged ?: me.hand.getOrNull(selected))
                 }
                 notice?.let { (text, until) ->
                     if (battle.time < until) {
-                        Text(
+                        OutlinedText(
                             text,
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp,
+                            fontSize = 20.sp,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 24.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(Palette.ElixirDark.copy(alpha = 0.9f))
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .border(2.dp, Color(0xFF0B1324), RoundedCornerShape(50))
+                                .padding(horizontal = 18.dp, vertical = 8.dp),
                         )
                     }
                 }
             }
             HandBar(
-                hand = battle.player.hand.toList(),
-                next = battle.player.next,
-                elixir = battle.player.elixir,
+                hand = me.hand.toList(),
+                next = me.next,
+                elixir = me.elixir,
                 selected = selected,
                 dragIndex = dragIndex,
                 onSelect = {
@@ -234,7 +241,7 @@ fun BattleScreen(
                 onDrag = { dragPos += it },
                 onDragEnd = {
                     val i = dragIndex
-                    val card = battle.player.hand.getOrNull(i)
+                    val card = me.hand.getOrNull(i)
                     if (card != null) tryDeploy(i, dragSpot(card))
                     dragIndex = -1
                 },
@@ -243,7 +250,7 @@ fun BattleScreen(
         }
 
         // While dragging over the hand (not yet over the arena), the card follows the finger.
-        val dragged = battle.player.hand.getOrNull(dragIndex)
+        val dragged = me.hand.getOrNull(dragIndex)
         if (dragged != null && !inArena(dragPos)) {
             val width = 72.dp
             val half = with(LocalDensity.current) { (width / 2).toPx() }
@@ -256,25 +263,19 @@ fun BattleScreen(
             )
         }
 
-        battle.outcome?.let { outcome ->
-            ResultOverlay(battle, outcome) { onFinished(outcome) }
+        battle.outcomeFor(viewer)?.let { outcome ->
+            ResultOverlay(outcome, myCrowns = me.crowns, theirCrowns = foe.crowns) { onFinished(outcome) }
         }
-    }
 
-    if (confirmLeave) {
-        AlertDialog(
-            onDismissRequest = { confirmLeave = false },
-            containerColor = Palette.Navy,
-            title = { Text("Leave battle?") },
-            text = { Text("Leaving now counts as a loss.") },
-            confirmButton = {
-                Button(onClick = {
+        if (confirmLeave) {
+            LeaveDialog(
+                onStay = { confirmLeave = false },
+                onSurrender = {
                     confirmLeave = false
-                    battle.surrender()
-                }) { Text("Surrender") }
-            },
-            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Keep fighting") } },
-        )
+                    match.send(Command.Surrender(viewer))
+                },
+            )
+        }
     }
 }
 
@@ -283,60 +284,72 @@ private const val DRAG_LIFT_TILES = 1f
 
 // ---------------------------------------------------------------------- HUD
 
+private val Ink = Color(0xFF0B1324)
+
 @Composable
 private fun TopBar(
     timeLeft: Float,
     overtime: Boolean,
     doubleElixir: Boolean,
+    opponentName: String,
     enemyCrowns: Int,
     playerCrowns: Int,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(Palette.Navy)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .background(Brush.verticalGradient(listOf(Palette.Night, Color(0xFF1B3260))))
+            .drawBehind { drawLine(Ink, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 3.dp.toPx()) }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("🤖 Claude Bot", color = Palette.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Crowns(enemyCrowns)
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val secs = ceil(timeLeft).toInt()
-            Text(
-                if (overtime) "Overtime" else "Time left",
-                color = Palette.TextDim,
-                fontSize = 11.sp,
-            )
-            Text(
+        NamePlate(opponentName, enemyCrowns, Palette.Red, Modifier.weight(1f), Alignment.Start)
+        // Timer plaque.
+        val secs = ceil(timeLeft).toInt()
+        Column(
+            Modifier
+                .padding(horizontal = 8.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFF2E3B55), Color(0xFF151D2E))))
+                .border(2.5.dp, Ink, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            OutlinedText(if (overtime) "OVERTIME" else "TIME LEFT", fontSize = 11.sp, color = if (overtime) Palette.Gold else Palette.TextDim)
+            OutlinedText(
                 "%d:%02d".format(secs / 60, secs % 60),
-                color = if (overtime) Palette.Gold else Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 22.sp,
+                fontSize = 26.sp,
+                color = if (overtime || secs <= 10) Palette.Gold else Color.White,
             )
-            if (doubleElixir) {
-                Text("x2 Elixir", color = Palette.Elixir, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            }
+            if (doubleElixir) OutlinedText("x2 ELIXIR", fontSize = 11.sp, color = Palette.Elixir)
         }
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-            Text("You 🙂", color = Palette.Blue, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Crowns(playerCrowns)
-        }
+        NamePlate("You", playerCrowns, Palette.Blue, Modifier.weight(1f), Alignment.End)
     }
 }
 
 @Composable
-private fun Crowns(count: Int) {
-    Row {
+private fun NamePlate(name: String, crowns: Int, color: Color, modifier: Modifier, align: Alignment.Horizontal) {
+    Column(modifier, horizontalAlignment = align) {
+        OutlinedText(name, fontSize = 17.sp, color = color, maxLines = 1)
+        Crowns(crowns, color)
+    }
+}
+
+@Composable
+private fun Crowns(count: Int, color: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(3) { i ->
-            Text(
-                "👑",
-                fontSize = 16.sp,
-                modifier = Modifier
-                    .padding(end = 2.dp)
-                    .alpha(if (i < count) 1f else 0.2f),
-            )
+            val won = i < count
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (won) color else Color(0xFF26324A))
+                    .border(2.dp, Ink, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("👑", fontSize = 12.sp, modifier = Modifier.alpha(if (won) 1f else 0.25f))
+            }
         }
     }
 }
@@ -358,12 +371,13 @@ private fun HandBar(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Palette.Panel, Palette.Navy)))
+            .background(Brush.verticalGradient(listOf(Color(0xFF2A4C86), Palette.Night)))
+            .drawBehind { drawLine(Color(0xFF0B1324), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 3.dp.toPx()) }
             .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.weight(0.7f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Next", color = Palette.TextDim, fontSize = 11.sp)
+                OutlinedText("NEXT", fontSize = 12.sp, color = Palette.TextDim)
                 next?.let { CardTile(it, showName = false, showCost = false, modifier = Modifier.fillMaxWidth()) }
             }
             for (i in 0 until 4) {
@@ -405,38 +419,47 @@ private fun HandBar(
 @Composable
 private fun ElixirBar(elixir: Float) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+        // Elixir drop with the whole-number count.
         Box(
             Modifier
-                .size(30.dp)
+                .size(34.dp)
                 .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Palette.Elixir, Palette.ElixirDark)))
-                .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape),
+                .background(Brush.radialGradient(listOf(Color(0xFFF3B6FF), Palette.Elixir, Palette.ElixirDark)))
+                .border(2.5.dp, Ink, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(elixir.toInt().toString(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            OutlinedText(elixir.toInt().toString(), fontSize = 19.sp)
         }
         Spacer(Modifier.width(6.dp))
         BoxWithConstraints(
             Modifier
                 .weight(1f)
-                .height(18.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF2A1840)),
+                .height(22.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF241534))
+                .border(2.5.dp, Ink, RoundedCornerShape(8.dp)),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .width(maxWidth * (elixir / Battle.MAX_ELIXIR))
-                    .background(Brush.horizontalGradient(listOf(Palette.ElixirDark, Palette.Elixir))),
+                    .background(Brush.verticalGradient(listOf(Color(0xFFF08CFF), Palette.Elixir, Palette.ElixirDark))),
+            )
+            // Gloss and pip dividers.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .padding(horizontal = 4.dp)
+                    .offset(y = 3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.22f)),
             )
             Row(Modifier.fillMaxSize()) {
-                repeat(10) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .border(0.5.dp, Color.Black.copy(alpha = 0.35f)),
-                    )
+                repeat(10) { i ->
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        if (i > 0) Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.copy(alpha = 0.6f)))
+                    }
                 }
             }
         }
@@ -444,41 +467,56 @@ private fun ElixirBar(elixir: Float) {
 }
 
 @Composable
-private fun ResultOverlay(battle: Battle, outcome: Outcome, onOk: () -> Unit) {
+private fun ResultOverlay(outcome: Outcome, myCrowns: Int, theirCrowns: Int, onOk: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xB0000000))
+            .background(Color(0xC0000000))
             .pointerInput(Unit) { detectTapGestures { } },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(Palette.Navy)
-                .border(2.dp, Palette.Gold, RoundedCornerShape(20.dp))
-                .padding(horizontal = 36.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        ChunkyPanel(Modifier.width(280.dp), tint = if (outcome == Outcome.WIN) Color(0xFF2A4C86) else Color(0xFF5A2A3A)) {
             val (title, color) = when (outcome) {
                 Outcome.WIN -> "VICTORY!" to Palette.Gold
                 Outcome.LOSS -> "DEFEAT" to Palette.Red
                 Outcome.DRAW -> "DRAW" to Color.White
             }
-            Text(title, color = color, fontSize = 40.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${battle.player.crowns}", color = Palette.Blue, fontSize = 34.sp, fontWeight = FontWeight.Black)
+            OutlinedText(title, fontSize = 44.sp, color = color, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedText("$myCrowns", fontSize = 38.sp, color = Palette.Blue)
                 Text("  👑  ", fontSize = 28.sp)
-                Text("${battle.enemy.crowns}", color = Palette.Red, fontSize = 34.sp, fontWeight = FontWeight.Black)
+                OutlinedText("$theirCrowns", fontSize = 38.sp, color = Palette.Red)
             }
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = onOk,
-                colors = ButtonDefaults.buttonColors(containerColor = Palette.Gold, contentColor = Color(0xFF3A2600)),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text("OK", fontWeight = FontWeight.Black, fontSize = 20.sp, modifier = Modifier.padding(horizontal = 24.dp))
+            Spacer(Modifier.height(18.dp))
+            ChunkyButton("OK", onOk, Modifier.fillMaxWidth(), color = ChunkyColor.GOLD, fontSize = 24.sp)
+        }
+    }
+}
+
+@Composable
+private fun LeaveDialog(onStay: () -> Unit, onSurrender: () -> Unit) {
+    BackHandler(onBack = onStay)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xA0000000))
+            .pointerInput(Unit) { detectTapGestures { onStay() } },
+        contentAlignment = Alignment.Center,
+    ) {
+        ChunkyPanel(Modifier.width(290.dp).pointerInput(Unit) { detectTapGestures { } }) {
+            OutlinedText("Leave battle?", fontSize = 28.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Leaving now counts as a loss.",
+                color = Palette.TextDim,
+                fontSize = 15.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChunkyButton("Stay", onStay, Modifier.weight(1f), color = ChunkyColor.BLUE, height = 46.dp)
+                ChunkyButton("Give up", onSurrender, Modifier.weight(1f), color = ChunkyColor.GREY, height = 46.dp)
             }
         }
     }

@@ -11,7 +11,7 @@ import os
 import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CARDS_KT = os.path.join(HERE, "..", "..", "app", "src", "main", "java", "com", "clashclaude", "game", "data", "Cards.kt")
+CARDS_KT = os.path.join(HERE, "..", "..", "engine", "src", "main", "kotlin", "com", "clashclaude", "game", "data", "Cards.kt")
 
 
 def parse_cards():

@@ -2,7 +2,7 @@
 
 A small Clash Royale–style game for Android, written in Kotlin with Jetpack Compose.
 
-- **Main screen:** build three decks of 8 from 21 cards, see each card's stats, and check your win/loss record.
+- **Main screen:** build three decks of 8 from 28 cards, see each card's stats, and check your win/loss record.
 - **Battle:** a 1v1 match against an AI opponent in a two-lane arena with a river, bridges, princess towers and a king tower.
 
 ## Gameplay
@@ -49,8 +49,8 @@ cd playtest && ../gradlew screenshots  # scripted playthrough of the real screen
 cd playtest && ../gradlew simulate     # 40 headless matches of the AI vs a random bot, with sanity checks
 ```
 
-`playtest/` is a separate desktop build (not part of the app). It compiles the app's
-`data`, `game` and `ui` sources against Compose Desktop, with small stand-ins for the few
+`playtest/` is a separate desktop build (not part of the app). It compiles the engine and the app's
+`data` and `ui` sources against Compose Desktop, with small stand-ins for the few
 Android-only APIs. That lets the battle screen run headlessly: it taps and drags cards
 and saves screenshots, without needing an emulator.
 
@@ -60,14 +60,23 @@ cloud sessions, so `./gradlew assembleDebug` works there too.
 ## Code layout
 
 ```
-app/src/main/java/com/clashclaude/game/
-├── MainActivity.kt       Switches between the home and battle screens
+engine/src/main/kotlin/com/clashclaude/game/     Plain Kotlin, no Android: shared with a future server
 ├── data/Cards.kt         Card definitions, default decks and AI decks
-├── data/DeckRepository   Saves decks and win/loss stats
 ├── data/DeckBuilder.kt   Random-but-sensible decks for the Magic button
 ├── game/Battle.kt        Simulation: arena, units, targeting, pathing, projectiles, spells, scoring
+├── game/Command.kt       Player actions (play card, surrender) as data
+├── game/Match.kt         What the battle screen drives; LocalMatch runs the battle on the phone
 ├── game/Ai.kt            AI opponent
-└── ui/                   Compose screens: home/deck builder, battle canvas, card tiles, theme
+└── game/Pathfinder.kt    A* routing around towers and buildings
+
+app/src/main/java/com/clashclaude/game/
+├── MainActivity.kt       Switches between the home and battle screens
+├── data/DeckRepository   Saves decks and win/loss stats
+├── audio/                Sound effects and music
+└── ui/                   Compose screens: home/deck builder, battle canvas and HUD, sprites, theme
 ```
 
-The game engine in `game/` is plain Kotlin with no Android dependencies, so it can be tested on the JVM.
+The engine runs in fixed 1/30 s ticks (`Battle.step()`), takes player input only as `Command`s,
+and is deterministic for a seed. The battle screen can show either side at the bottom. That's the
+groundwork for online play against friends, with a server on unRAID running the real match.
+See [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
