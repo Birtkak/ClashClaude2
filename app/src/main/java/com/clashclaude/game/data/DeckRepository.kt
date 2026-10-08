@@ -31,6 +31,14 @@ class DeckRepository(context: Context) {
         get() = prefs.getInt("losses", 0)
         set(value) = prefs.edit().putInt("losses", value).apply()
 
+    var soundOn: Boolean
+        get() = prefs.getBoolean("sound_on", true)
+        set(value) = prefs.edit().putBoolean("sound_on", value).apply()
+
+    var musicOn: Boolean
+        get() = prefs.getBoolean("music_on", true)
+        set(value) = prefs.edit().putBoolean("music_on", value).apply()
+
     companion object {
         const val DECK_COUNT = 3
         const val DECK_SIZE = 8

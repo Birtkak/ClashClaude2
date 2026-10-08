@@ -88,6 +88,9 @@ private fun visualScale(c: Combatant): Float = when (c.kind) {
     else -> c.radius * 3.0f
 }
 
+/** How high (tiles) a deploying unit starts its drop from. */
+private const val DROP_HEIGHT = 4f
+
 /** How high flyers hover above their ground position, in tiles. */
 private const val FLY_HEIGHT = 0.9f
 
@@ -227,29 +230,36 @@ private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
     val u = s * visualScale(c)
     val fx = t.sx(c.x)
     val groundY = t.sy(c.y) + c.radius * 0.45f * s
-    val feetY = if (c.flying) groundY - FLY_HEIGHT * s else groundY
-    val alpha = if (c.deploying) 0.55f else 1f
+    // While deploying the unit drops in from above, speeding up as it falls.
+    val fall = if (c.deploying) (c.deployTimer / Combatant.DEPLOY_TIME).coerceIn(0f, 1f) else 0f
+    val dropHeight = fall * fall * DROP_HEIGHT
+    val feetY = (if (c.flying) groundY - FLY_HEIGHT * s else groundY) - dropHeight * s
     val color = teamColor(c.team)
 
-    // Team-colored base so friend/foe reads at a glance.
-    val baseR = c.radius * s * 1.05f
-    drawOval(color.copy(alpha = 0.35f * alpha), Offset(fx - baseR, groundY - baseR * 0.42f), Size(baseR * 2, baseR * 0.84f))
-    drawOval(color.copy(alpha = alpha), Offset(fx - baseR, groundY - baseR * 0.42f), Size(baseR * 2, baseR * 0.84f), style = Stroke(s * 0.06f))
+    // Team-colored base so friend/foe reads at a glance; while dropping it's the landing shadow.
+    val baseR = c.radius * s * 1.05f * (1f - fall * 0.5f)
+    val baseTl = Offset(fx - baseR, groundY - baseR * 0.42f)
+    val baseSize = Size(baseR * 2, baseR * 0.84f)
+    if (c.deploying) drawOval(Color(0x55000000), baseTl, baseSize)
+    drawOval(color.copy(alpha = 0.35f), baseTl, baseSize)
+    drawOval(color, baseTl, baseSize, style = Stroke(s * 0.06f))
 
-    Pen(this, fx, feetY, u, c.faceX, alpha).unit(id, color, poseOf(c, time))
+    Pen(this, fx, feetY, u, c.faceX).unit(id, color, poseOf(c, time))
 
     if (c.hitFlash > 0f) {
         drawCircle(Color(0x66FFFFFF), u * 0.4f, Offset(fx, feetY - u * 0.5f))
     }
     if (c.deploying) {
+        // Countdown ring on the landing spot.
+        val ringR = c.radius * s * 1.3f
         drawArc(
             Color.White,
             startAngle = -90f,
-            sweepAngle = 360f * (c.deployTimer / Combatant.DEPLOY_TIME),
+            sweepAngle = 360f * fall,
             useCenter = false,
-            topLeft = Offset(fx - baseR * 1.2f, groundY - baseR * 1.2f),
-            size = Size(baseR * 2.4f, baseR * 2.4f),
-            style = Stroke(s * 0.08f),
+            topLeft = Offset(fx - ringR, groundY - ringR * 0.42f),
+            size = Size(ringR * 2, ringR * 0.84f),
+            style = Stroke(s * 0.07f),
         )
     }
     if (c.stunTimer > 0f) {
@@ -266,7 +276,7 @@ private fun DrawScope.drawHealth(c: Combatant, t: ArenaTransform) {
         label(c.hp.toInt().toString(), t.sx(c.x), y - s * 0.3f, s * 0.4f)
         return
     }
-    if (c.hp >= c.maxHp && c.kind != Kind.BUILDING) return
+    if (c.deploying || (c.hp >= c.maxHp && c.kind != Kind.BUILDING)) return
     val id = c.card?.id ?: return
     val u = s * visualScale(c)
     val groundY = t.sy(c.y) + c.radius * 0.45f * s

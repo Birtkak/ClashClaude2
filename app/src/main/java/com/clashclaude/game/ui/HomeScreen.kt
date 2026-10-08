@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -44,10 +47,19 @@ import com.clashclaude.game.data.CardType
 import com.clashclaude.game.data.Cards
 import com.clashclaude.game.data.DeckRepository
 import com.clashclaude.game.data.TargetType
+import com.clashclaude.game.game.Sfx
 import java.util.Locale
 
 @Composable
-fun HomeScreen(repo: DeckRepository, onBattle: (List<CardDef>) -> Unit) {
+fun HomeScreen(
+    repo: DeckRepository,
+    audio: GameAudio = GameAudio.Silent,
+    /** Called with the new (sound effects, music) settings after a toggle. */
+    onAudioSettings: (Boolean, Boolean) -> Unit = { _, _ -> },
+    onBattle: (List<CardDef>) -> Unit,
+) {
+    var soundOn by remember { mutableStateOf(repo.soundOn) }
+    var musicOn by remember { mutableStateOf(repo.musicOn) }
     var decks by remember { mutableStateOf(repo.loadDecks()) }
     var selected by remember { mutableStateOf(repo.selectedDeck) }
     var infoCard by remember { mutableStateOf<CardDef?>(null) }
@@ -81,6 +93,18 @@ fun HomeScreen(repo: DeckRepository, onBattle: (List<CardDef>) -> Unit) {
                 fontWeight = FontWeight.Black,
                 modifier = Modifier.weight(1f),
             )
+            ToggleChip(if (soundOn) "🔊" else "🔇") {
+                soundOn = !soundOn
+                repo.soundOn = soundOn
+                onAudioSettings(soundOn, musicOn)
+                audio.play(Sfx.CLICK)
+            }
+            ToggleChip("🎵", dim = !musicOn) {
+                musicOn = !musicOn
+                repo.musicOn = musicOn
+                onAudioSettings(soundOn, musicOn)
+                audio.play(Sfx.CLICK)
+            }
             Text(
                 "🏆 ${repo.wins}W · ${repo.losses}L",
                 color = Color.White,
@@ -209,7 +233,10 @@ fun HomeScreen(repo: DeckRepository, onBattle: (List<CardDef>) -> Unit) {
 
         val ready = deckCards.size == DeckRepository.DECK_SIZE
         Button(
-            onClick = { onBattle(deckCards) },
+            onClick = {
+                audio.play(Sfx.DEPLOY)
+                onBattle(deckCards)
+            },
             enabled = ready,
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(
@@ -251,6 +278,21 @@ fun HomeScreen(repo: DeckRepository, onBattle: (List<CardDef>) -> Unit) {
             },
             onDismiss = { infoCard = null },
         )
+    }
+}
+
+@Composable
+private fun ToggleChip(icon: String, dim: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .padding(end = 6.dp)
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Palette.Panel)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(icon, fontSize = 17.sp, modifier = Modifier.alpha(if (dim) 0.35f else 1f))
     }
 }
 

@@ -35,9 +35,11 @@ private class InMemoryPrefs : android.content.SharedPreferences {
     private val values = mutableMapOf<String, Any?>()
     override fun getString(k: String, d: String?) = values[k] as String? ?: d
     override fun getInt(k: String, d: Int) = values[k] as Int? ?: d
+    override fun getBoolean(k: String, d: Boolean) = values[k] as Boolean? ?: d
     override fun edit() = object : android.content.SharedPreferences.Editor {
         override fun putString(k: String, v: String?) = apply { values[k] = v }
         override fun putInt(k: String, v: Int) = apply { values[k] = v }
+        override fun putBoolean(k: String, v: Boolean) = apply { values[k] = v }
         override fun apply() {}
     }
 }
@@ -140,6 +142,8 @@ fun main(args: Array<String>) {
     d.tap(handX[0], HAND_Y)
     d.screenshot("03-card-selected")
     d.tap(250f, 1500f)
+    d.wait(0.35f)
+    d.screenshot("03b-dropping")
 
     // Drag a card deep into enemy territory: troops should snap back to our side of the river.
     for (round in 0 until 4) {
@@ -185,7 +189,9 @@ private fun stagedFight(out: File, density: Density) {
         ClashTheme { BattleScreen(player, initialBattle = battle) {} }
     }
     val d = Driver(scene, out)
-    d.wait(6f)
+    d.wait(0.45f)
+    d.screenshot("07-fight-0-dropping")
+    d.wait(5.5f)
     for (i in 1..4) {
         d.wait(0.4f)
         d.screenshot("07-fight-$i")

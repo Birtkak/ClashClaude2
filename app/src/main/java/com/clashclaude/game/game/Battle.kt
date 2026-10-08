@@ -246,6 +246,21 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
     val spells = mutableListOf<SpellCast>()
     val effects = mutableListOf<Effect>()
 
+    private val pendingSounds = ArrayList<Sfx>()
+
+    /** Returns and clears the sounds triggered since the last call. */
+    fun drainSounds(): List<Sfx> {
+        val out = pendingSounds.toList()
+        pendingSounds.clear()
+        return out
+    }
+
+    private fun sound(sfx: Sfx) {
+        // Bounded so a headless simulation that never drains doesn't grow forever.
+        if (pendingSounds.size >= 64) pendingSounds.removeAt(0)
+        pendingSounds += sfx
+    }
+
     /** Positions of destroyed towers, drawn as rubble. */
     val rubble = mutableListOf<Combatant>()
 
@@ -375,6 +390,10 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                 val sy = king?.y ?: if (team == Team.PLAYER) Arena.HEIGHT else 0f
                 spells += SpellCast(team, card, sx, sy, x, y)
             }
+            when (card.id) {
+                "fireball" -> sound(Sfx.FIRE)
+                "arrows" -> sound(Sfx.VOLLEY)
+            }
             return true
         }
 
@@ -382,6 +401,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             entities += Combatant.fromCard(card, team, ux, uy).apply { faceX = if (x < Arena.WIDTH / 2f) 1f else -1f }
         }
         effects += Effect(EffectKind.RING, x, y, 1.2f, teamColor(team), 0.5f)
+        sound(Sfx.DEPLOY)
         return true
     }
 
@@ -443,7 +463,12 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         c.sinceAttack += dt
         c.moving = false
         if (c.deployTimer > 0f) {
+            // Still dropping in from above; it lands with a puff of dust.
             c.deployTimer -= dt
+            if (c.deployTimer <= 0f) {
+                effects += Effect(EffectKind.PUFF, c.x, c.y + c.radius * 0.4f, c.radius * 1.5f, 0xAAD7CCC8, 0.4f)
+                sound(if (c.maxHp >= 2500f || c.kind == Kind.BUILDING) Sfx.LAND_HEAVY else Sfx.LAND)
+            }
             return
         }
         if (c.kind == Kind.BUILDING && c.lifetime > 0f) c.hp -= c.maxHp / c.lifetime * dt
@@ -568,6 +593,20 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
 
     private fun attack(c: Combatant, t: Combatant) {
         c.sinceAttack = 0f
+        sound(
+            when {
+                c.projectile == ProjectileStyle.ZAP -> Sfx.ZAP
+                c.projectile == ProjectileStyle.ARROW || c.projectile == ProjectileStyle.SPEAR -> Sfx.BOW
+                c.projectile == ProjectileStyle.BULLET -> Sfx.GUN
+                c.projectile == ProjectileStyle.CANNONBALL -> Sfx.CANNON
+                c.projectile == ProjectileStyle.FIRE -> Sfx.FIRE
+                c.projectile == ProjectileStyle.BOMB -> Sfx.THROW
+                c.projectile == ProjectileStyle.ORB -> Sfx.BLIP
+                c.splashAroundSelf -> Sfx.SPIN
+                c.card?.id == "giant" || c.card?.id == "hogrider" -> Sfx.PUNCH
+                else -> Sfx.SWORD
+            },
+        )
         val hitsAir = c.targets != TargetType.GROUND
         when {
             c.projectile == ProjectileStyle.ZAP -> {
@@ -697,10 +736,12 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                 p.done = true
                 if (p.splash > 0f) {
                     splashDamage(p.team, p.tx, p.ty, p.splash, p.damage, p.hitsAir)
+                    sound(Sfx.EXPLOSION)
                     val color = if (p.style == ProjectileStyle.BOMB) 0xCCFFD54F else 0xCCFF7043
                     effects += Effect(EffectKind.EXPLOSION, p.tx, p.ty, p.splash, color, 0.4f)
                 } else {
                     if (p.target.alive) damage(p.target, p.damage)
+                    sound(Sfx.HIT)
                     effects += Effect(EffectKind.SPARK, p.tx, p.ty, 0.35f, 0xFFFFF59D, 0.2f)
                 }
             } else {
@@ -731,6 +772,13 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                     else -> 0xDDFFF59D
                 }
                 effects += Effect(EffectKind.EXPLOSION, s.tx, s.ty, s.card.spellRadius, color, 0.5f)
+                sound(
+                    when (s.card.id) {
+                        "fireball" -> Sfx.BIG_EXPLOSION
+                        "zap" -> Sfx.ZAP
+                        else -> Sfx.HIT
+                    },
+                )
                 if (s.card.id == "zap") {
                     for (i in -1..1) {
                         val bx = s.tx + i * s.card.spellRadius * 0.5f
@@ -755,7 +803,11 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         if (dead.isEmpty()) return
         for (d in dead) {
             effects += Effect(EffectKind.PUFF, d.x, d.y, d.radius * 1.6f, 0xAAFFFFFF, 0.4f)
-            if (!d.isTower) continue
+            if (!d.isTower) {
+                sound(Sfx.DEATH)
+                continue
+            }
+            sound(Sfx.TOWER_DOWN)
             rubble += d
             val scorer = side(d.team.opponent)
             if (d.kind == Kind.KING_TOWER) {

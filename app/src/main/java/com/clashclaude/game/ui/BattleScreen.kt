@@ -29,6 +29,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,6 +57,7 @@ import com.clashclaude.game.data.Cards
 import com.clashclaude.game.game.Arena
 import com.clashclaude.game.game.Battle
 import com.clashclaude.game.game.Outcome
+import com.clashclaude.game.game.Sfx
 import com.clashclaude.game.game.Team
 import kotlin.math.ceil
 
@@ -64,6 +66,7 @@ fun BattleScreen(
     playerDeck: List<CardDef>,
     /** A pre-built battle to show instead of starting a new one (used by the playtest harness). */
     initialBattle: Battle? = null,
+    audio: GameAudio = GameAudio.Silent,
     onFinished: (Outcome) -> Unit,
 ) {
     val battle = remember {
@@ -81,16 +84,29 @@ fun BattleScreen(
     val cardOrigins = remember { Array(4) { Offset.Zero } }
 
     LaunchedEffect(battle) {
+        audio.music(true)
+        var fastMusic = false
         var last = withFrameNanos { it }
         while (battle.outcome == null) {
             withFrameNanos { now ->
                 val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.05f)
                 last = now
                 battle.update(dt)
+                battle.drainSounds().forEach(audio::play)
+                if (battle.doubleElixir != fastMusic) {
+                    fastMusic = battle.doubleElixir
+                    audio.music(true, fast = fastMusic)
+                }
                 frame++
             }
         }
+        battle.drainSounds().forEach(audio::play)
+        audio.music(false)
+        audio.play(if (battle.outcome == Outcome.WIN) Sfx.VICTORY else Sfx.DEFEAT)
         frame++
+    }
+    DisposableEffect(battle) {
+        onDispose { audio.music(false) }
     }
 
     BackHandler(enabled = battle.outcome == null) { confirmLeave = true }
@@ -128,9 +144,12 @@ fun BattleScreen(
         val (x, y) = spot ?: return false
         if (battle.player.elixir < card.cost) {
             notice = "Not enough elixir!" to battle.time + 1.2f
+            audio.play(Sfx.DENY)
             return false
         }
-        return battle.deploy(Team.PLAYER, index, x, y)
+        val ok = battle.deploy(Team.PLAYER, index, x, y)
+        battle.drainSounds().forEach(audio::play)
+        return ok
     }
 
     Box(
@@ -197,7 +216,10 @@ fun BattleScreen(
                 elixir = battle.player.elixir,
                 selected = selected,
                 dragIndex = dragIndex,
-                onSelect = { selected = if (selected == it) -1 else it },
+                onSelect = {
+                    selected = if (selected == it) -1 else it
+                    audio.play(Sfx.CLICK)
+                },
                 onCardPositioned = { i, pos -> cardOrigins[i] = pos },
                 onDragStart = { i, offset ->
                     dragIndex = i
