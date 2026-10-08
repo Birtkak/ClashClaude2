@@ -1,6 +1,7 @@
 package com.clashclaude.game.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,7 +44,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -84,8 +87,7 @@ fun BattleScreen(
     var selected by remember { mutableIntStateOf(-1) }
     var dragIndex by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
-    // Hand drags hold the ghost a tile above the finger; hovering on the arena puts it right under it.
-    var dragLift by remember { mutableStateOf(true) }
+    val haptics = LocalHapticFeedback.current
     var confirmLeave by remember { mutableStateOf(false) }
     // Short message shown over the arena, e.g. "Not enough elixir", until battle time `second`.
     var notice by remember { mutableStateOf<Pair<String, Float>?>(null) }
@@ -146,15 +148,10 @@ fun BattleScreen(
     }
 
     /**
-     * Where a dragged card would land. The point is lifted above the fingertip so the
-     * ghost stays visible; dragging back over the hand means "cancel".
+     * Where the card under the finger would land: right under it, snapped to the tile grid and
+     * the deploy zone. Off the arena (back over the hand) means "cancel".
      */
-    fun dragSpot(card: CardDef): Pair<Float, Float>? {
-        if (!inArena(dragPos)) return null
-        if (!dragLift) return dropSpot(card, dragPos)
-        val lifted = Offset(dragPos.x, dragPos.y - DRAG_LIFT_TILES * transform.depth)
-        return dropSpot(card, if (inArena(lifted)) lifted else dragPos)
-    }
+    fun dragSpot(card: CardDef): Pair<Float, Float>? = dropSpot(card, dragPos)
 
     /** Sends a play to the match; it lands on the next tick (or when the server accepts it). */
     fun tryDeploy(index: Int, spot: Pair<Float, Float>?): Boolean {
@@ -165,8 +162,13 @@ fun BattleScreen(
             audio.play(Sfx.DENY)
             return false
         }
-        if (!battle.canPlace(viewer, card, x, y)) return false
+        if (!battle.canPlace(viewer, card, x, y)) {
+            notice = "Can't place it there" to battle.time + 1.2f
+            audio.play(Sfx.DENY)
+            return false
+        }
         match.send(Command.PlayCard(viewer, card.id, x, y))
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         return true
     }
 
@@ -195,14 +197,13 @@ fun BattleScreen(
                         transform.fit(it.size.width.toFloat(), it.size.height.toFloat())
                     }
                     .pointerInput(Unit) {
-                        // With a card selected, press anywhere on the arena to show its ghost there,
-                        // slide to adjust, and release to place it. A plain tap places it at once.
+                        // With a card selected, tap the arena to place it there, or press and slide:
+                        // the ghost follows the finger and the card lands where it's released.
                         awaitEachGesture {
                             val down = awaitFirstDown()
                             val i = selected
                             if (me.hand.getOrNull(i) == null) return@awaitEachGesture
                             down.consume()
-                            dragLift = false
                             dragIndex = i
                             dragPos = down.position + transform.originInRoot
                             while (true) {
@@ -233,6 +234,22 @@ fun BattleScreen(
                     }
                     drawBattle(battle, transform, ghost, armed = dragged ?: me.hand.getOrNull(selected))
                 }
+            // While a card is picked up, say what to do with it.
+                val picked = me.hand.getOrNull(selected)
+                if (picked != null && dragIndex < 0 && battle.outcome == null) {
+                    OutlinedText(
+                        "Tap the arena to place ${picked.name} · hold to aim",
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 10.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xE6142440))
+                            .border(2.dp, Palette.Gold, RoundedCornerShape(50))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                    )
+                }
                 notice?.let { (text, until) ->
                     if (battle.time < until) {
                         OutlinedText(
@@ -258,19 +275,23 @@ fun BattleScreen(
                 onSelect = {
                     selected = if (selected == it) -1 else it
                     audio.play(Sfx.CLICK)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 },
                 onCardPositioned = { i, pos -> cardOrigins[i] = pos },
                 onDragStart = { i, offset ->
-                    dragLift = true
                     dragIndex = i
                     selected = -1
                     dragPos = cardOrigins[i] + offset
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 },
                 onDrag = { dragPos += it },
                 onDragEnd = {
                     val i = dragIndex
                     val card = me.hand.getOrNull(i)
-                    if (card != null) tryDeploy(i, dragSpot(card))
+                    if (card != null) {
+                        // Let go back over the hand: keep the card picked up instead of placing it.
+                        if (!inArena(dragPos)) selected = i else tryDeploy(i, dragSpot(card))
+                    }
                     dragIndex = -1
                 },
                 onDragCancel = { dragIndex = -1 },
@@ -306,9 +327,6 @@ fun BattleScreen(
         }
     }
 }
-
-/** The drop point floats this many tiles above the fingertip while dragging. */
-private const val DRAG_LIFT_TILES = 1f
 
 // ---------------------------------------------------------------------- HUD
 
@@ -411,10 +429,12 @@ private fun HandBar(
             for (i in 0 until 4) {
                 val card = hand[i]
                 val affordable = elixir >= card.cost
+                // The picked-up card pops up out of the hand.
+                val lift by animateDpAsState(if (i == selected) (-16).dp else 0.dp, label = "card-lift")
                 Box(
                     Modifier
                         .weight(1f)
-                        .offset(y = if (i == selected) (-8).dp else 0.dp)
+                        .offset(y = lift)
                         .onGloballyPositioned { onCardPositioned(i, it.positionInRoot()) }
                         .testTag("hand-$i")
                         .pointerInput(i) {

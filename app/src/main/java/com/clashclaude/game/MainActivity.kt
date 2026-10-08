@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                             sounds.soundOn = sound
                             sounds.musicOn = music
                         },
+                        version = packageManager.getPackageInfo(packageName, 0).versionName ?: "?",
                         onBattle = { battleDeck = it },
                     )
                 } else {

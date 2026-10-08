@@ -12,8 +12,13 @@ android {
         applicationId = "com.clashclaude.game"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // The build number is the commit count, the same in CI and local builds, so every new
+        // build installs over the last one and its number shows on the home screen.
+        val build = runCatching {
+            providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+        }.getOrDefault(1)
+        versionCode = build
+        versionName = build.toString()
     }
 
     signingConfigs {

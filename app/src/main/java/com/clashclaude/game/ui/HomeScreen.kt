@@ -84,6 +84,8 @@ fun HomeScreen(
     onAudioSettings: (Boolean, Boolean) -> Unit = { _, _ -> },
     /** Which tab to open on (0 battle, 1 deck, 2 more); used by the playtest harness. */
     initialTab: Int = 0,
+    /** Shown under the title so it's easy to tell which build is installed. */
+    version: String = "dev",
     onBattle: (List<CardDef>) -> Unit,
 ) {
     var tab by remember { mutableStateOf(HomeTab.entries[initialTab.coerceIn(0, 2)]) }
@@ -102,7 +104,7 @@ fun HomeScreen(
     }
 
     ChunkyBackdrop(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize()) {
-        TopBar(repo.wins, repo.losses)
+        TopBar(repo.wins, version)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Crossfade(targetState = tab, label = "home-tab") { current ->
                 when (current) {
@@ -143,7 +145,7 @@ fun HomeScreen(
 // ---------------------------------------------------------------- chrome
 
 @Composable
-private fun TopBar(wins: Int, losses: Int) {
+private fun TopBar(wins: Int, version: String) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -151,7 +153,10 @@ private fun TopBar(wins: Int, losses: Int) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedText("Clash Claude", fontSize = 30.sp, color = Palette.Gold, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            OutlinedText("Clash Claude", fontSize = 30.sp, color = Palette.Gold)
+            Text("Build $version · ${Cards.all.size} cards", color = Palette.TextDim, fontSize = 11.sp)
+        }
         Row(
             Modifier
                 .clip(RoundedCornerShape(12.dp))
@@ -638,7 +643,7 @@ private fun MoreTab(repo: DeckRepository, audio: GameAudio, onAudioSettings: (Bo
         Panel {
             SectionTitle("How to play")
             val tips = listOf(
-                "Drag a card onto your half of the arena (or tap a card, then tap the arena). The highlighted tile shows exactly where it lands.",
+                "Tap a card to pick it up, then tap the arena to drop it there, or hold and slide to aim first. You can also drag a card straight from your hand. The highlighted tile shows exactly where it lands.",
                 "Cards cost elixir. It refills over time, twice as fast in the last minute.",
                 "Destroy princess towers for crowns. Taking the king tower wins instantly.",
                 "Once you destroy a princess tower, you can place troops further forward on that side.",

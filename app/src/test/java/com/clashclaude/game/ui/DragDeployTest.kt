@@ -12,7 +12,9 @@ import com.clashclaude.game.data.Cards
 import com.clashclaude.game.game.Battle
 import com.clashclaude.game.game.Kind
 import com.clashclaude.game.game.Team
+import androidx.compose.ui.test.click
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,5 +79,58 @@ class DragDeployTest {
         val troopsAfter = battle.entities.count { it.team == Team.PLAYER && it.kind == Kind.TROOP }
         assertEquals("one Knight should have been deployed", troopsBefore + 1, troopsAfter)
         assertEquals(CardType.TROOP, Cards.get("knight")!!.type)
+    }
+
+    /** A battle where card 0 is an affordable Knight and the AI can't play. */
+    private fun knightBattle(): Battle {
+        val deck = Cards.defaultDecks[0].map { Cards.get(it)!! }
+        val battle = Battle(deck, deck, Random(5))
+        battle.player.hand[0] = Cards.get("knight")!!
+        battle.player.elixir = 10f
+        battle.enemy.elixir = 0f
+        rule.mainClock.autoAdvance = false
+        rule.setContent { ClashTheme { BattleScreen(deck, initialBattle = battle) {} } }
+        rule.mainClock.advanceTimeBy(500)
+        return battle
+    }
+
+    private fun knights(b: Battle) = b.entities.count { it.team == Team.PLAYER && it.kind == Kind.TROOP }
+
+    @Test
+    fun tapACardThenTapTheArenaPlacesIt() {
+        val battle = knightBattle()
+        val before = knights(battle)
+        rule.onNodeWithTag("hand-0").performTouchInput { click(center) }
+        rule.mainClock.advanceTimeBy(100)
+        shot("tap-1-selected")
+        val arena = rule.onNodeWithTag("arena").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithTag("arena").performTouchInput { click(Offset(arena.width * 0.3f, arena.height * 0.75f)) }
+        rule.mainClock.advanceTimeBy(300)
+        shot("tap-2-placed")
+        assertEquals(before + 1, knights(battle))
+        // It landed where the finger tapped (left side), not somewhere else.
+        val knight = battle.entities.last { it.team == Team.PLAYER && it.kind == Kind.TROOP }
+        assertTrue("knight at x=${knight.x}", knight.x < 9f)
+    }
+
+    @Test
+    fun tapACardThenHoldAndSlideAimsBeforePlacing() {
+        val battle = knightBattle()
+        val before = knights(battle)
+        rule.onNodeWithTag("hand-0").performTouchInput { click(center) }
+        rule.mainClock.advanceTimeBy(100)
+        val arena = rule.onNodeWithTag("arena").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithTag("arena").performTouchInput {
+            down(Offset(arena.width * 0.3f, arena.height * 0.75f))
+            for (s in 1..15) moveTo(Offset(arena.width * (0.3f + 0.04f * s), arena.height * 0.75f), delayMillis = 16)
+        }
+        rule.mainClock.advanceTimeBy(100)
+        shot("hover-1-aiming")
+        assertEquals("nothing placed while aiming", before, knights(battle))
+        rule.onNodeWithTag("arena").performTouchInput { up() }
+        rule.mainClock.advanceTimeBy(300)
+        assertEquals(before + 1, knights(battle))
+        val knight = battle.entities.last { it.team == Team.PLAYER && it.kind == Kind.TROOP }
+        assertTrue("knight follows the slide to the right, x=${knight.x}", knight.x > 12f)
     }
 }
