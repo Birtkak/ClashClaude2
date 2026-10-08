@@ -41,6 +41,10 @@ class Pose(
 }
 
 private val Ink = Color(0xFF1B1B26)
+private val Shine = Color(0x88FFFFFF)
+
+/** The shadow-side tone of a colour for cel shading. */
+private fun shade(c: Color) = Color(c.red * 0.58f, c.green * 0.56f, c.blue * 0.68f, c.alpha)
 private const val OUT = 0.035f
 
 private val Skin = Color(0xFFF6C9A0)
@@ -73,16 +77,38 @@ class Pen(
     fun at(x: Float, y: Float) = Offset(sx(x), sy(y))
     private fun c(color: Color) = if (alpha >= 1f) color else color.copy(alpha = color.alpha * alpha)
 
+    // Cel shading: outlined (main) shapes get a shadow side, a lit core shifted toward the light
+    // (top-left of the screen, whichever way the unit faces) and a specular highlight, so the
+    // flat figures read as solid little 3D toys. Small unoutlined details stay flat.
+
     fun circle(x: Float, y: Float, r: Float, fill: Color, outline: Boolean = true) {
-        ds.drawCircle(c(fill), r * u, at(x, y))
-        if (outline) ds.drawCircle(c(Ink), r * u, at(x, y), style = Stroke(OUT * u))
+        val center = at(x, y)
+        val rp = r * u
+        if (outline) {
+            ds.drawCircle(c(shade(fill)), rp, center)
+            ds.drawCircle(c(fill), rp * 0.84f, center + Offset(-rp * 0.13f, -rp * 0.13f))
+            ds.drawCircle(c(Shine), rp * 0.26f, center + Offset(-rp * 0.4f, -rp * 0.42f))
+            ds.drawCircle(c(Ink), rp, center, style = Stroke(OUT * u))
+        } else {
+            ds.drawCircle(c(fill), rp, center)
+        }
     }
 
     fun oval(x: Float, y: Float, rx: Float, ry: Float, fill: Color, outline: Boolean = true) {
         val tl = Offset(min(sx(x - rx), sx(x + rx)), sy(y - ry))
         val size = Size(2 * rx * u, 2 * ry * u)
-        ds.drawOval(c(fill), tl, size)
-        if (outline) ds.drawOval(c(Ink), tl, size, style = Stroke(OUT * u))
+        if (outline) {
+            ds.drawOval(c(shade(fill)), tl, size)
+            ds.drawOval(c(fill), tl + Offset(size.width * 0.02f, size.height * 0.02f), Size(size.width * 0.84f, size.height * 0.82f))
+            ds.drawOval(
+                c(Shine),
+                tl + Offset(size.width * 0.18f, size.height * 0.14f),
+                Size(size.width * 0.28f, size.height * 0.22f),
+            )
+            ds.drawOval(c(Ink), tl, size, style = Stroke(OUT * u))
+        } else {
+            ds.drawOval(c(fill), tl, size)
+        }
     }
 
     /** Rectangle centered on (x, y). */
@@ -90,31 +116,78 @@ class Pen(
         val tl = Offset(min(sx(x - w / 2), sx(x + w / 2)), sy(y - h / 2))
         val size = Size(w * u, h * u)
         val cr = androidx.compose.ui.geometry.CornerRadius(corner * u)
-        ds.drawRoundRect(c(fill), tl, size, cr)
-        if (outline) ds.drawRoundRect(c(Ink), tl, size, cr, style = Stroke(OUT * u))
+        if (outline) {
+            ds.drawRoundRect(c(shade(fill)), tl, size, cr)
+            ds.drawRoundRect(c(fill), tl, Size(size.width * 0.88f, size.height * 0.8f), cr)
+            ds.drawRoundRect(
+                c(Shine),
+                tl + Offset(size.width * 0.08f, size.height * 0.1f),
+                Size(size.width * 0.6f, size.height * 0.14f),
+                androidx.compose.ui.geometry.CornerRadius(size.height * 0.07f),
+            )
+            ds.drawRoundRect(c(Ink), tl, size, cr, style = Stroke(OUT * u))
+        } else {
+            ds.drawRoundRect(c(fill), tl, size, cr)
+        }
     }
 
     fun line(x1: Float, y1: Float, x2: Float, y2: Float, w: Float, color: Color) {
         ds.drawLine(c(color), at(x1, y1), at(x2, y2), strokeWidth = w * u, cap = StrokeCap.Round)
     }
 
-    /** A thick rounded stroke with an ink outline: arms, legs, handles. */
+    /** A thick rounded stroke with an ink outline, shaded like a cylinder: arms, legs, handles. */
     fun limb(x1: Float, y1: Float, x2: Float, y2: Float, w: Float, color: Color) {
-        line(x1, y1, x2, y2, w + OUT * 2, Ink)
-        line(x1, y1, x2, y2, w, color)
+        val a = at(x1, y1)
+        val b = at(x2, y2)
+        val wp = w * u
+        ds.drawLine(c(Ink), a, b, strokeWidth = wp + OUT * 2 * u, cap = StrokeCap.Round)
+        ds.drawLine(c(shade(color)), a, b, strokeWidth = wp, cap = StrokeCap.Round)
+        // Offset the lit band toward the light (screen up-left), across the limb.
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val len = kotlin.math.max(0.001f, kotlin.math.hypot(dx, dy))
+        var nx = -dy / len
+        var ny = dx / len
+        if (nx + ny > 0f) { nx = -nx; ny = -ny }
+        val lit = Offset(nx, ny) * (wp * 0.17f)
+        ds.drawLine(c(color), a + lit, b + lit, strokeWidth = wp * 0.55f, cap = StrokeCap.Round)
+        val spec = Offset(nx, ny) * (wp * 0.3f)
+        ds.drawLine(c(Shine), a + spec, b + spec, strokeWidth = wp * 0.16f, cap = StrokeCap.Round)
     }
 
     fun poly(vararg pts: Float, fill: Color, outline: Boolean = true) {
+        val path = polyPath(pts, 1f, 0f, 0f)
+        if (outline) {
+            ds.drawPath(path, c(shade(fill)))
+            var minY = Float.MAX_VALUE
+            var maxY = -Float.MAX_VALUE
+            var i = 1
+            while (i < pts.size) {
+                minY = min(minY, pts[i]); maxY = kotlin.math.max(maxY, pts[i]); i += 2
+            }
+            ds.drawPath(polyPath(pts, 0.82f, -0.02f, -(maxY - minY) * 0.06f), c(fill))
+            ds.drawPath(path, c(Ink), style = Stroke(OUT * u, join = StrokeJoin.Round))
+        } else {
+            ds.drawPath(path, c(fill))
+        }
+    }
+
+    /** The polygon scaled about its centroid by [k] and shifted (screen-space x by [dx], sprite y by [dy]). */
+    private fun polyPath(pts: FloatArray, k: Float, dx: Float, dy: Float): Path {
+        var cx = 0f
+        var cy = 0f
+        val n = pts.size / 2
+        for (i in 0 until n) { cx += pts[i * 2]; cy += pts[i * 2 + 1] }
+        cx /= n; cy /= n
         val path = Path()
-        path.moveTo(sx(pts[0]), sy(pts[1]))
-        var i = 2
-        while (i < pts.size) {
-            path.lineTo(sx(pts[i]), sy(pts[i + 1]))
-            i += 2
+        for (i in 0 until n) {
+            val px = cx + (pts[i * 2] - cx) * k
+            val py = cy + (pts[i * 2 + 1] - cy) * k + dy
+            val sxp = sx(px) + dx * u
+            if (i == 0) path.moveTo(sxp, sy(py)) else path.lineTo(sxp, sy(py))
         }
         path.close()
-        ds.drawPath(path, c(fill))
-        if (outline) ds.drawPath(path, c(Ink), style = Stroke(OUT * u, join = StrokeJoin.Round))
+        return path
     }
 
     fun arc(x: Float, y: Float, r: Float, startDeg: Float, sweepDeg: Float, w: Float, color: Color) {
@@ -366,6 +439,11 @@ fun spriteTop(id: String): Float = when (id) {
     "pekka", "minipekka" -> -1.15f
     "cannon" -> -0.9f
     "tesla" -> -1.5f
+    "infernotower" -> -1.6f
+    "tombstone" -> -1.0f
+    "megaminion" -> -1.15f
+    "royalgiant" -> -1.2f
+    "witch" -> -1.35f
     else -> -1.12f
 }
 
@@ -497,8 +575,58 @@ fun Pen.unit(id: String, team: Color, pose: Pose) {
         "hogrider" -> hogRider(pose, team)
         "babydragon" -> babyDragon(pose, team)
         "minions" -> minion(pose, team)
+        "megaminion" -> megaMinion(pose, team)
         "cannon" -> cannon(team, pose)
         "tesla" -> tesla(team, pose)
+        "infernotower" -> infernoTower(team, pose)
+        "tombstone" -> tombstone(team)
+        "witch" -> humanoid(
+            Body(shirt = Color(0xFF6A1B9A), pants = Color(0xFF4A148C), skin = Color(0xFFE0C3A8), robe = true), pose, Hold.AIM,
+            head = { x, y, r ->
+                hair(x, y, r, Color(0xFFAB47BC))
+                // Long hair down the back and a crooked dark hat.
+                oval(x - r * 0.9f, y + r * 0.9f, r * 0.35f, r * 0.9f, Color(0xFFAB47BC))
+                poly(-r * 1.5f, y - r * 0.5f, r * 1.4f, y - r * 0.5f, r * 0.2f, y - r * 1.4f, -r * 0.9f, y - r * 2.6f, -r * 0.3f, y - r * 1.2f, fill = Color(0xFF311B42))
+                line(-r * 1.0f, y - r * 0.75f, r * 1.0f, y - r * 0.75f, 0.06f, team)
+            },
+            weapon = { x, y, a ->
+                // Bone staff topped with a glowing skull.
+                val (tx, ty) = along(x, y, -1.45f, 0.55f)
+                val (bx, by) = along(x, y, -1.45f, -0.35f)
+                limb(bx, by, tx, ty, 0.05f, Bone)
+                val glow = 0.1f + pose.recoil * 0.06f
+                circle(tx, ty - 0.05f, glow * 1.8f, Color(0x66CE93D8), outline = false)
+                circle(tx, ty - 0.05f, 0.09f, Bone)
+                circle(tx + 0.03f, ty - 0.06f, 0.02f, Color(0xFFE040FB), outline = false)
+                circle(tx - 0.03f, ty - 0.06f, 0.02f, Color(0xFFE040FB), outline = false)
+            },
+        )
+        "royalgiant" -> humanoid(
+            Body(shirt = Color(0xFF1565C0), pants = Color(0xFF5D4037), torsoW = 0.44f, torsoH = 0.38f, limbW = 0.14f),
+            pose, Hold.AIM,
+            head = { x, y, r ->
+                hair(x, y, r, Color(0xFFFFB300))
+                poly(-r * 0.3f, y + r * 0.2f, r * 0.95f, y + r * 0.2f, r * 0.5f, y + r * 1.2f, -r * 0.1f, y + r * 0.9f, fill = Color(0xFFFFB300))
+                // Gold crown.
+                poly(
+                    -r * 0.8f, y - r * 0.7f, -r * 0.8f, y - r * 1.5f, -r * 0.4f, y - r * 1.05f, 0f, y - r * 1.6f,
+                    r * 0.4f, y - r * 1.05f, r * 0.8f, y - r * 1.5f, r * 0.8f, y - r * 0.7f, fill = Gold,
+                )
+                line(-r * 0.9f, y + r * 1.3f, r * 0.9f, y + r * 1.3f, 0.05f, team)
+            },
+            weapon = { x, y, a ->
+                // Hand cannon.
+                val back = pose.recoil * 0.1f
+                val (sx, sy) = along(x, y, a, -0.15f - back)
+                val (mx, my) = along(x, y, a, 0.45f - back)
+                limb(sx, sy, mx, my, 0.18f, Color(0xFF37474F))
+                circle(mx, my, 0.08f, Color(0xFF263238))
+                if (pose.recoil > 0.5f) {
+                    val (fx, fy) = along(mx, my, a, 0.12f)
+                    circle(fx, fy, 0.12f * pose.recoil, Gold, outline = false)
+                }
+            },
+        )
         else -> humanoid(Body(shirt = team, pants = SteelDark), pose, Hold.MELEE)
     }
 }
@@ -610,6 +738,46 @@ private fun Pen.cannon(team: Color, pose: Pose) {
     circle(mx, my, 0.1f, Color(0xFF263238))
     circle(bx, by, 0.18f, Color(0xFF455A64))
     box(0f, -0.02f, 0.5f, 0.06f, team, corner = 0.02f, outline = false)
+}
+
+private fun Pen.megaMinion(pose: Pose, team: Color) {
+    val blue = Color(0xFF1E5AA8)
+    val armor = Color(0xFF78909C)
+    val flap = sin(pose.time * 10f) * 0.15f
+    poly(-0.1f, -0.6f, -0.62f, -0.95f + flap, -0.45f, -0.45f, fill = Color(0xFF0D47A1))
+    poly(0.1f, -0.6f, 0.55f, -0.98f + flap, 0.42f, -0.5f, fill = Color(0xFF1565C0))
+    oval(0f, -0.48f, 0.22f, 0.22f, blue)
+    box(0f, -0.5f, 0.32f, 0.22f, armor, corner = 0.06f)
+    circle(0.04f, -0.78f, 0.17f, blue)
+    // Helmet with a visor slit.
+    poly(-0.15f, -0.8f, -0.12f, -0.97f, 0.06f, -1.0f, 0.2f, -0.88f, 0.2f, -0.78f, fill = armor)
+    line(0.06f, -0.82f, 0.18f, -0.82f, 0.035f, Color(0xFFFF5252))
+    line(-0.16f, -0.36f, 0.16f, -0.36f, 0.05f, team)
+    if (pose.recoil > 0.3f) circle(0.3f, -0.6f, 0.08f, Color(0xFF7E57C2), outline = false)
+}
+
+private fun Pen.infernoTower(team: Color, pose: Pose) {
+    val metal = Color(0xFF4E342E)
+    box(0f, -0.15f, 0.8f, 0.3f, Color(0xFF3E2723), corner = 0.06f)
+    poly(-0.32f, -0.25f, 0.32f, -0.25f, 0.18f, -1.15f, -0.18f, -1.15f, fill = metal)
+    line(-0.25f, -0.55f, 0.25f, -0.55f, 0.04f, Color(0xFF6D4C41))
+    line(-0.21f, -0.85f, 0.21f, -0.85f, 0.04f, Color(0xFF6D4C41))
+    // Burning core, brighter as it fires.
+    val heat = 0.12f + pose.recoil * 0.06f + sin(pose.time * 9f) * 0.012f
+    circle(0f, -1.28f, heat * 1.9f, Color(0x55FF6D00), outline = false)
+    circle(0f, -1.28f, heat, Color(0xFFFF6D00))
+    circle(0f, -1.28f, heat * 0.5f, Color(0xFFFFE082), outline = false)
+    box(0f, -0.06f, 0.6f, 0.06f, team, corner = 0.02f, outline = false)
+}
+
+private fun Pen.tombstone(team: Color) {
+    oval(0f, -0.08f, 0.5f, 0.16f, Color(0xFF6D4C41))
+    poly(-0.32f, -0.12f, -0.32f, -0.7f, -0.2f, -0.88f, 0f, -0.94f, 0.2f, -0.88f, 0.32f, -0.7f, 0.32f, -0.12f, fill = Color(0xFF90A4AE))
+    // Cross and cracks.
+    line(0f, -0.78f, 0f, -0.42f, 0.06f, Color(0xFF546E7A))
+    line(-0.13f, -0.66f, 0.13f, -0.66f, 0.06f, Color(0xFF546E7A))
+    line(0.15f, -0.3f, 0.24f, -0.42f, 0.025f, Color(0xFF546E7A))
+    box(0f, -0.16f, 0.5f, 0.06f, team, corner = 0.02f, outline = false)
 }
 
 private fun Pen.tesla(team: Color, pose: Pose) {
@@ -726,6 +894,29 @@ fun Pen.spellIcon(id: String, time: Float) {
                 poly(ox + 0.42f, oy + 0.42f, ox + 0.22f, oy + 0.34f, ox + 0.34f, oy + 0.22f, fill = Steel)
                 line(ox - 0.35f, oy - 0.35f, ox - 0.25f, oy - 0.45f, 0.08f, Color.White)
             }
+        }
+        "freeze" -> {
+            // A giant air conditioner blowing freezing air.
+            box(0f, -0.1f, 0.95f, 0.55f, Color(0xFFECEFF1), corner = 0.08f)
+            for (i in 0..3) line(-0.38f, -0.26f + i * 0.08f, 0.1f, -0.26f + i * 0.08f, 0.03f, Color(0xFF90A4AE))
+            circle(0.27f, -0.12f, 0.13f, Color(0xFFCFD8DC))
+            circle(0.27f, -0.12f, 0.04f, Color(0xFF4FC3F7), outline = false)
+            box(0f, 0.12f, 0.8f, 0.05f, Color(0xFF263238), corner = 0.02f, outline = false)
+            for (i in -1..1) {
+                val wave = sin(time * 8f + i) * 0.04f
+                line(i * 0.25f, 0.22f, i * 0.28f + wave, 0.48f, 0.04f, Color(0xFF81D4FA))
+            }
+            // Snowflake.
+            for (k in 0..2) {
+                val a = k * PI.toFloat() / 3f
+                line(-0.42f - cos(a) * 0.1f, 0.38f - sin(a) * 0.1f, -0.42f + cos(a) * 0.1f, 0.38f + sin(a) * 0.1f, 0.03f, Color.White)
+            }
+        }
+        "lightning" -> {
+            oval(0f, -0.3f, 0.45f, 0.2f, Color(0xFF546E7A))
+            oval(-0.2f, -0.38f, 0.25f, 0.17f, Color(0xFF607D8B))
+            oval(0.2f, -0.4f, 0.22f, 0.15f, Color(0xFF607D8B))
+            poly(0.05f, -0.18f, -0.15f, 0.12f, 0.02f, 0.12f, -0.1f, 0.48f, 0.22f, 0.02f, 0.06f, 0.02f, 0.18f, -0.18f, fill = Color(0xFFFFEE58))
         }
         "zap" -> poly(
             0.1f, -0.5f, -0.25f, 0.05f, 0f, 0.05f, -0.15f, 0.5f, 0.3f, -0.1f, 0.05f, -0.1f, 0.2f, -0.5f,

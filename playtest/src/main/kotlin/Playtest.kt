@@ -24,6 +24,11 @@ import java.io.File
 // Scripted, headless playtest of the real Compose screens at a typical phone size
 // (1080x2340 px, 2.75x density). Screenshots land in the directory given as args[0].
 
+/** The app's display font, loaded from the Android resources folder. */
+private val DisplayFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.platform.Font(File("../app/src/main/res/font/lilita_one.ttf")),
+)
+
 private const val W = 1080
 private const val H = 2340
 
@@ -94,11 +99,13 @@ fun main(args: Array<String>) {
     val out = File(args.getOrElse(0) { "build/playtest" }).apply { mkdirs() }
     val density = Density(2.75f)
 
-    val home = ImageComposeScene(W, H, density) {
-        ClashTheme { HomeScreen(DeckRepository(FakeContext())) {} }
+    for ((i, name) in listOf("battle", "deck", "more").withIndex()) {
+        val home = ImageComposeScene(W, H, density) {
+            ClashTheme(DisplayFont) { HomeScreen(DeckRepository(FakeContext()), initialTab = i) {} }
+        }
+        Driver(home, out).apply { wait(0.5f) }.screenshot("01-home-$name")
+        home.close()
     }
-    Driver(home, out).screenshot("01-home")
-    home.close()
 
     // Sprite sheet: every card in idle, walk and attack poses, plus both towers.
     val gallery = ImageComposeScene(W, H, density) {
@@ -107,7 +114,7 @@ fun main(args: Array<String>) {
             Cards.all.forEachIndexed { i, card ->
                 val col = (i % 2) * 3
                 val row = i / 2
-                val y = cell * 0.8f * (row + 1) + 10f
+                val y = cell * 0.6f * (row + 1) + 10f
                 for (p in 0 until 3) {
                     val pose = when (p) {
                         0 -> Pose(time = 0.2f)
@@ -130,9 +137,10 @@ fun main(args: Array<String>) {
     gallery.close()
 
     stagedFight(out, density)
+    stagedNewCards(out, density)
 
     val deck = Cards.defaultDecks[0].mapNotNull { Cards.get(it) }
-    val battle = ImageComposeScene(W, H, density) { ClashTheme { BattleScreen(deck) {} } }
+    val battle = ImageComposeScene(W, H, density) { ClashTheme(DisplayFont) { BattleScreen(deck) {} } }
     val d = Driver(battle, out)
     d.wait(1f)
     d.screenshot("02-battle-start")
@@ -186,7 +194,7 @@ private fun stagedFight(out: File, density: Density) {
     battle.player.elixir = 0f
 
     val scene = ImageComposeScene(W, H, density) {
-        ClashTheme { BattleScreen(player, initialBattle = battle) {} }
+        ClashTheme(DisplayFont) { BattleScreen(player, initialBattle = battle) {} }
     }
     val d = Driver(scene, out)
     d.wait(0.45f)
@@ -196,5 +204,38 @@ private fun stagedFight(out: File, density: Density) {
         d.wait(0.4f)
         d.screenshot("07-fight-$i")
     }
+    scene.close()
+}
+
+/** The newer cards together: Inferno, Tombstone, Witch vs Giant, Mega Minion, Royal Giant, then a Freeze. */
+private fun stagedNewCards(out: File, density: Density) {
+    fun deck(vararg ids: String) = ids.map { Cards.get(it)!! }
+    val player = deck("infernotower", "tombstone", "witch", "freeze", "lightning", "knight", "archers", "zap")
+    val enemy = deck("giant", "megaminion", "royalgiant", "goblins", "hogrider", "pekka", "speargoblins", "skeletons")
+    val battle = com.clashclaude.game.game.Battle(player, enemy, kotlin.random.Random(9))
+    val P = com.clashclaude.game.game.Team.PLAYER
+    val E = com.clashclaude.game.game.Team.ENEMY
+    fun put(team: com.clashclaude.game.game.Team, id: String, x: Float, y: Float) {
+        val side = battle.side(team)
+        side.elixir = 10f
+        side.hand[0] = Cards.get(id)!!
+        check(battle.deploy(team, 0, x, y)) { "couldn't deploy $id" }
+        side.elixir = 0f
+    }
+    put(E, "giant", 4f, 12f)
+    put(E, "megaminion", 6f, 12f)
+    put(E, "royalgiant", 3f, 9f)
+    put(P, "infernotower", 6f, 22f)
+    put(P, "tombstone", 9f, 24f)
+    put(P, "witch", 6.5f, 25.5f)
+    val scene = ImageComposeScene(W, H, density) { ClashTheme(DisplayFont) { BattleScreen(player, initialBattle = battle) {} } }
+    val d = Driver(scene, out)
+    d.wait(9f)
+    d.screenshot("08-new-cards-1")
+    put(P, "freeze", 4.5f, 17.5f)
+    d.wait(1f)
+    d.screenshot("08-new-cards-2-freeze")
+    d.wait(4f)
+    d.screenshot("08-new-cards-3")
     scene.close()
 }

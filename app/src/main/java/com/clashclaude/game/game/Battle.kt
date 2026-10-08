@@ -2,6 +2,7 @@ package com.clashclaude.game.game
 
 import com.clashclaude.game.data.CardDef
 import com.clashclaude.game.data.CardType
+import com.clashclaude.game.data.Cards
 import com.clashclaude.game.data.ProjectileStyle
 import com.clashclaude.game.data.TargetType
 import kotlin.math.PI
@@ -71,6 +72,13 @@ class Combatant(
     var lockedOn = false
     var retargetTimer = 0f
     var stunTimer = 0f
+    /** Seconds left frozen by a Freeze spell (drawn icy blue). */
+    var frozenTimer = 0f
+    /** Spawners: seconds until the next spawn. */
+    var spawnTimer = card?.spawnEvery?.times(0.4f) ?: 0f
+    /** Inferno: how long the beam has stayed on [rampTargetId]. */
+    var rampTime = 0f
+    var rampTargetId = -1
     var active = kind != Kind.KING_TOWER
     var hitFlash = 0f
 
@@ -194,6 +202,8 @@ enum class EffectKind {
     EXPLOSION,
     /** Melee weapon slash on the target. */
     SLASH,
+    /** Freeze spell zone: an icy area with a giant AC unit blowing cold air, for the whole freeze. */
+    FREEZE,
 }
 
 class Effect(
@@ -480,9 +490,20 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             return
         }
         if (c.kind == Kind.BUILDING && c.lifetime > 0f) c.hp -= c.maxHp / c.lifetime * dt
+        if (c.frozenTimer > 0f) c.frozenTimer -= dt
         if (c.stunTimer > 0f) {
             c.stunTimer -= dt
             return
+        }
+        c.rampTime += dt
+        c.card?.let { card ->
+            if (card.spawnEvery > 0f && card.spawnId != null) {
+                c.spawnTimer -= dt
+                if (c.spawnTimer <= 0f) {
+                    c.spawnTimer = card.spawnEvery
+                    spawnAround(c, card.spawnId, card.spawnCount)
+                }
+            }
         }
         if (!c.active || c.damage <= 0f) return
         c.cooldown -= dt
@@ -604,6 +625,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         sound(
             when {
                 c.projectile == ProjectileStyle.ZAP -> Sfx.ZAP
+                c.projectile == ProjectileStyle.BEAM -> Sfx.INFERNO
                 c.projectile == ProjectileStyle.ARROW || c.projectile == ProjectileStyle.SPEAR -> Sfx.BOW
                 c.projectile == ProjectileStyle.BULLET -> Sfx.GUN
                 c.projectile == ProjectileStyle.CANNONBALL -> Sfx.CANNON
@@ -617,6 +639,16 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         )
         val hitsAir = c.targets != TargetType.GROUND
         when {
+            c.projectile == ProjectileStyle.BEAM -> {
+                // Ramps up while the beam stays on the same target; switching resets it.
+                if (c.rampTargetId != t.id) {
+                    c.rampTargetId = t.id
+                    c.rampTime = 0f
+                }
+                val ramp = min(1f, c.rampTime / 4f)
+                damage(t, c.damage * (1f + (c.card?.rampDamage ?: 0f) * ramp))
+                effects += Effect(EffectKind.LINE, c.x, c.y, 0.4f + ramp, 0xFFFF6D00, 0.12f, t.x, t.y, lift = 1.4f)
+            }
             c.projectile == ProjectileStyle.ZAP -> {
                 damage(t, c.damage)
                 effects += Effect(EffectKind.LINE, c.x, c.y, 0f, 0xFF9FE8FF, 0.18f, t.x, t.y, lift = 1.5f)
@@ -665,6 +697,7 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
             if (hypot(e.x - x, e.y - y) - e.radius > r) continue
             damage(e, if (e.isTower) amount * towerPct else amount)
             if (stun > 0f) {
+                e.rampTime = 0f
                 e.stunTimer = max(e.stunTimer, stun)
                 e.lockedOn = false
                 e.target = null
@@ -770,20 +803,31 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
                 s.x = s.tx
                 s.y = s.ty
                 s.done = true
-                splashDamage(
-                    s.team, s.tx, s.ty, s.card.spellRadius, s.card.damage.toFloat(), hitsAir = true,
-                    towerPct = s.card.towerDamagePct, stun = s.card.stun,
-                )
+                when {
+                    s.card.freeze > 0f -> freezeArea(s)
+                    s.card.strikes > 0 -> strikeToughest(s)
+                    else -> splashDamage(
+                        s.team, s.tx, s.ty, s.card.spellRadius, s.card.damage.toFloat(), hitsAir = true,
+                        towerPct = s.card.towerDamagePct, stun = s.card.stun,
+                    )
+                }
                 val color = when (s.card.id) {
                     "fireball" -> 0xDDFF6D00
-                    "zap" -> 0xDD80D8FF
+                    "zap", "freeze" -> 0xDD80D8FF
+                    "lightning" -> 0xDDFFF176
                     else -> 0xDDFFF59D
                 }
-                effects += Effect(EffectKind.EXPLOSION, s.tx, s.ty, s.card.spellRadius, color, 0.5f)
+                if (s.card.freeze > 0f) {
+                    effects += Effect(EffectKind.FREEZE, s.tx, s.ty, s.card.spellRadius, color, s.card.freeze)
+                } else if (s.card.strikes == 0) {
+                    effects += Effect(EffectKind.EXPLOSION, s.tx, s.ty, s.card.spellRadius, color, 0.5f)
+                }
                 sound(
                     when (s.card.id) {
                         "fireball" -> Sfx.BIG_EXPLOSION
                         "zap" -> Sfx.ZAP
+                        "freeze" -> Sfx.FREEZE
+                        "lightning" -> Sfx.THUNDER
                         else -> Sfx.HIT
                     },
                 )
@@ -801,6 +845,53 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         spells.removeAll { it.done }
     }
 
+    /** Freeze: enemy troops in the area stop dead (no moving, no attacking) for the duration. */
+    private fun freezeArea(s: SpellCast) {
+        for (e in entities) {
+            if (e.team == s.team || !e.alive || e.kind != Kind.TROOP) continue
+            if (hypot(e.x - s.tx, e.y - s.ty) - e.radius > s.card.spellRadius) continue
+            e.stunTimer = max(e.stunTimer, s.card.freeze)
+            e.frozenTimer = max(e.frozenTimer, s.card.freeze)
+            e.rampTime = 0f
+            e.lockedOn = false
+            e.target = null
+        }
+    }
+
+    /** Lightning: one bolt each on the [SpellCast.card]'s `strikes` highest-HP enemies in range. */
+    private fun strikeToughest(s: SpellCast) {
+        val card = s.card
+        val victims = entities
+            .filter { it.team != s.team && it.alive && hypot(it.x - s.tx, it.y - s.ty) - it.radius <= card.spellRadius }
+            .sortedByDescending { it.hp }
+            .take(card.strikes)
+        for (v in victims) {
+            damage(v, if (v.isTower) card.damage * card.towerDamagePct else card.damage.toFloat())
+            v.stunTimer = max(v.stunTimer, card.stun)
+            v.rampTime = 0f
+            effects += Effect(EffectKind.LINE, v.x, v.y, 1.2f, 0xFFFFF59D, 0.35f, v.x, v.y, lift = 7f)
+            effects += Effect(EffectKind.EXPLOSION, v.x, v.y, 0.9f, 0xDDFFF176, 0.35f)
+        }
+    }
+
+    /** Spawns [count] units of card [spawnId] in a ring around [c], on its side of the river. */
+    private fun spawnAround(c: Combatant, spawnId: String, count: Int) {
+        val card = Cards.get(spawnId) ?: return
+        for (i in 0 until count) {
+            val a = (2.0 * PI * i / max(1, count) + PI / 2).toFloat()
+            val ring = if (count == 1) c.radius + 0.4f else c.radius + 0.5f
+            val x = (c.x + ring * cos(a)).coerceIn(0.5f, Arena.WIDTH - 0.5f)
+            var y = (c.y + ring * sin(a)).coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+            if (Arena.inRiver(y)) y = if (c.y < Arena.RIVER_MID) Arena.RIVER_TOP else Arena.RIVER_BOTTOM
+            entities += Combatant.fromCard(card, c.team, x, y).apply {
+                deployTimer = 0.3f
+                faceX = c.faceX
+            }
+        }
+        effects += Effect(EffectKind.PUFF, c.x, c.y, c.radius * 1.4f, 0xAA9E9E9E, 0.35f)
+        sound(Sfx.SPAWN)
+    }
+
     private fun updateEffects(dt: Float) {
         for (e in effects) e.age += dt
         effects.removeAll { it.age >= it.duration }
@@ -811,6 +902,9 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         if (dead.isEmpty()) return
         for (d in dead) {
             effects += Effect(EffectKind.PUFF, d.x, d.y, d.radius * 1.6f, 0xAAFFFFFF, 0.4f)
+            d.card?.let { card ->
+                if (card.deathSpawnCount > 0 && card.spawnId != null) spawnAround(d, card.spawnId, card.deathSpawnCount)
+            }
             if (!d.isTower) {
                 sound(Sfx.DEATH)
                 continue

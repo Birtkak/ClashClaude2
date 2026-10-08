@@ -1,0 +1,4 @@
+Lilita One (app/src/main/res/font/lilita_one.ttf)
+Copyright (c) 2011, Juan Montoreano (juan@remolacha.biz), with Reserved Font Name "Lilita One".
+Licensed under the SIL Open Font License, Version 1.1: https://openfontlicense.org
+Downloaded from Google Fonts (https://fonts.google.com/specimen/Lilita+One).

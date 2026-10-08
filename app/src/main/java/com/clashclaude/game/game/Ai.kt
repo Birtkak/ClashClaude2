@@ -65,7 +65,12 @@ class AiController(private val battle: Battle, private val side: Side, private v
                 var v = 0f
                 for (e in all) {
                     if (hypot(e.x - cx, e.y - cy) - e.radius > card.spellRadius) continue
-                    v += if (e.hp <= card.damage) e.value else e.value * 0.3f
+                    v += when {
+                        // Freeze is worth the whole army it stops, not damage dealt.
+                        card.freeze > 0f -> e.value * 0.8f
+                        e.hp <= card.damage -> e.value
+                        else -> e.value * 0.3f
+                    }
                 }
                 if (v > bestValue) {
                     bestValue = v; bx = cx; by = cy

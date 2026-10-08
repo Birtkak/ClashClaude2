@@ -14,16 +14,15 @@ A small Clash Royale–style game for Android, written in Kotlin with Jetpack Co
 - Matches last 3 minutes. If crowns are tied, there is 1 minute of sudden-death overtime. If it is still tied after that, the side whose weakest tower has less HP loses.
 - The king tower only starts shooting once it takes damage or loses a princess tower.
 
-### Cards
+### Cards (28)
 
-| Troops | | | Spells | Buildings |
-|---|---|---|---|---|
-| Knight | Archers | Giant | Fireball | Cannon |
-| Musketeer | Mini P.E.K.K.A | Goblins | Arrows | Tesla |
-| Skeletons | Baby Dragon | Valkyrie | Zap | |
-| Hog Rider | Wizard | Minions | | |
-| P.E.K.K.A | Bomber | Barbarians | | |
-| Spear Goblins | | | | |
+- **Troops:** Knight, Archers, Giant, Royal Giant, Musketeer, Mini P.E.K.K.A, P.E.K.K.A, Goblins, Spear Goblins,
+  Skeletons, Bomber, Barbarians, Valkyrie, Hog Rider, Wizard, Witch (summons skeletons), Baby Dragon, Minions, Mega Minion
+- **Spells:** Fireball, Arrows, Zap, Freeze (freezes troops), Lightning (strikes the 3 toughest enemies)
+- **Buildings:** Cannon, Tesla, Inferno Tower (damage ramps up), Tombstone (spawns skeletons)
+
+The Deck tab's **Magic deck** button builds a random deck with one win condition, one or two spells,
+anti-air, at most one building, cheap cycle cards and a sensible elixir average.
 
 ## Building
 
@@ -65,6 +64,7 @@ app/src/main/java/com/clashclaude/game/
 ├── MainActivity.kt       Switches between the home and battle screens
 ├── data/Cards.kt         Card definitions, default decks and AI decks
 ├── data/DeckRepository   Saves decks and win/loss stats
+├── data/DeckBuilder.kt   Random-but-sensible decks for the Magic button
 ├── game/Battle.kt        Simulation: arena, units, targeting, pathing, projectiles, spells, scoring
 ├── game/Ai.kt            AI opponent
 └── ui/                   Compose screens: home/deck builder, battle canvas, card tiles, theme

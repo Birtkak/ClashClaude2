@@ -114,18 +114,23 @@ class SoundBoard(private val context: Context) : GameAudio {
         Sfx.DENY -> R.raw.sfx_deny
         Sfx.VICTORY -> R.raw.sfx_victory
         Sfx.DEFEAT -> R.raw.sfx_defeat
+        Sfx.FREEZE -> R.raw.sfx_freeze
+        Sfx.THUNDER -> R.raw.sfx_thunder
+        Sfx.INFERNO -> R.raw.sfx_inferno
+        Sfx.SPAWN -> R.raw.sfx_spawn
     }
 
     private fun volume(sfx: Sfx): Float = when (sfx) {
-        Sfx.HIT, Sfx.BLIP -> 0.35f
+        Sfx.HIT, Sfx.BLIP, Sfx.INFERNO -> 0.35f
         Sfx.BOW, Sfx.SWORD, Sfx.PUNCH -> 0.45f
         Sfx.LAND, Sfx.DEATH, Sfx.SPIN, Sfx.THROW -> 0.55f
-        Sfx.TOWER_DOWN, Sfx.BIG_EXPLOSION, Sfx.VICTORY, Sfx.DEFEAT -> 1f
+        Sfx.TOWER_DOWN, Sfx.BIG_EXPLOSION, Sfx.VICTORY, Sfx.DEFEAT, Sfx.THUNDER, Sfx.FREEZE -> 1f
         else -> 0.7f
     }
 
     private fun minGapMs(sfx: Sfx): Long = when (sfx) {
         Sfx.HIT, Sfx.BOW, Sfx.SWORD, Sfx.PUNCH -> 70
+        Sfx.INFERNO -> 300
         Sfx.LAND, Sfx.DEATH -> 90
         else -> 50
     }

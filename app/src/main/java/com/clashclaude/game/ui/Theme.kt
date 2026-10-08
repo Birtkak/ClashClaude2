@@ -3,6 +3,9 @@ package com.clashclaude.game.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.Color
 import com.clashclaude.game.data.CardType
 import com.clashclaude.game.data.Rarity
@@ -32,8 +35,11 @@ object Palette {
     }
 }
 
+/** The chunky display face for titles, buttons and numbers (Lilita One in the app). */
+val LocalDisplayFont = staticCompositionLocalOf<FontFamily> { FontFamily.Default }
+
 @Composable
-fun ClashTheme(content: @Composable () -> Unit) {
+fun ClashTheme(displayFont: FontFamily = FontFamily.Default, content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Palette.Gold,
@@ -45,6 +51,7 @@ fun ClashTheme(content: @Composable () -> Unit) {
             onSurface = Color.White,
             onBackground = Color.White,
         ),
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalDisplayFont provides displayFont, content = content)
+    }
 }

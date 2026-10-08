@@ -274,6 +274,43 @@ def deny():
     b = pad(lowpass(sweep(80, 70, 0.2, "square"), 900) * env(int(RATE * 0.2), 0.002, curve=1.5), 0.17)
     return heavy(mix(a, b) * 0.7, 1.6, 0.2, 0.1)
 
+def freeze():
+    # Crackling ice spreading out over a deep cold boom.
+    dur = 1.4
+    crackle = np.zeros(int(RATE * dur))
+    for _ in range(60):
+        t0 = int(RATE * rng.uniform(0, dur * 0.8))
+        c = highpass(noise(rng.uniform(0.005, 0.02)), 1500) * rng.uniform(0.2, 0.7)
+        crackle[t0:t0 + len(c)] += c[: len(crackle) - t0]
+    crackle = lowpass(crackle, 6000) * np.linspace(1, 0.3, len(crackle))
+    shimmer = sum(np.sin(2 * np.pi * f * t_axis(dur)) for f in (880, 1320, 1760)) * env(int(RATE * dur), 0.2, curve=2) * 0.08
+    return heavy(mix(crackle, shimmer, thump(70, 28, 0.8, 1.8)), 2.0, 1.2, 0.35)
+
+
+def thunder():
+    crack = lowpass(noise(0.2), 7000) * env(int(RATE * 0.2), 0.001, curve=6)
+    roll = lowpass(noise(2.0), np.linspace(1500, 120, int(RATE * 2.0))) * env(int(RATE * 2.0), 0.05, curve=1.6)
+    return heavy(mix(crack, roll * 0.9, thump(55, 20, 1.2, 1.5)), 2.6, 1.5, 0.35)
+
+
+def inferno():
+    # A short burning hum that repeats while the beam is on.
+    t = t_axis(0.35)
+    hum = (np.sin(2 * np.pi * 70 * t) + 0.5 * np.sign(np.sin(2 * np.pi * 140 * t))) * env(len(t), 0.03, curve=1)
+    roar = lowpass(noise(0.35), 900) * env(len(t), 0.03, curve=1.2) * 0.7
+    return heavy(lowpass(mix(hum * 0.5, roar), 1200), 2.0, 0.3, 0.15)
+
+
+def spawn():
+    # Bones rattling out of the ground.
+    out = np.zeros(int(RATE * 0.4))
+    for _ in range(9):
+        k = lowpass(highpass(noise(0.025), 500), 3000) * env(int(RATE * 0.025), 0.001, curve=3) * rng.uniform(0.3, 0.8)
+        s0 = int(RATE * rng.uniform(0, 0.3))
+        out[s0:s0 + len(k)] += k[: len(out) - s0]
+    return heavy(mix(out, thump(110, 50, 0.2) * 0.6), 2.0, 0.4, 0.2)
+
+
 # ---------------------------------------------------------------- music & jingles
 
 NOTE = {n: 440 * 2 ** ((i - 9) / 12) for i, n in enumerate(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"])}
@@ -386,6 +423,10 @@ SOUNDS = {
     "sfx_deny": deny,
     "sfx_victory": victory,
     "sfx_defeat": defeat,
+    "sfx_freeze": freeze,
+    "sfx_thunder": thunder,
+    "sfx_inferno": inferno,
+    "sfx_spawn": spawn,
 }
 
 if __name__ == "__main__":

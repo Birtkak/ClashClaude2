@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import com.clashclaude.game.audio.SoundBoard
 import com.clashclaude.game.data.CardDef
 import com.clashclaude.game.data.DeckRepository
@@ -28,7 +30,7 @@ class MainActivity : ComponentActivity() {
             musicOn = repo.musicOn
         }
         setContent {
-            ClashTheme {
+            ClashTheme(displayFont = FontFamily(Font(R.font.lilita_one))) {
                 // null = home screen, otherwise the deck being played in battle.
                 var battleDeck by remember { mutableStateOf<List<CardDef>?>(null) }
                 val deck = battleDeck

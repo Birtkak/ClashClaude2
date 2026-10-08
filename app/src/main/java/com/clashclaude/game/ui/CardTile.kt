@@ -45,7 +45,9 @@ fun CardTile(
             .alpha(if (dimmed) 0.4f else 1f)
             .clip(shape)
             .background(Brush.verticalGradient(Palette.rarity(card.rarity)))
-            .border(if (highlighted) 3.dp else 1.5.dp, if (highlighted) Palette.Gold else Color(0x55FFFFFF), shape),
+            .border(if (highlighted) 3.dp else 2.5.dp, if (highlighted) Palette.Gold else Color(0xFF0B1324), shape)
+            .padding(2.5.dp)
+            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp)),
     ) {
         val density = LocalDensity.current
         val w = maxWidth

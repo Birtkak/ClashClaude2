@@ -14,7 +14,7 @@ fun main() {
     repeat(40) { seed ->
         val rng = Random(seed)
         val pDeck = Cards.defaultDecks[seed % 3].map { Cards.get(it)!! }
-        val eDeck = Cards.aiDecks[seed % 4].map { Cards.get(it)!! }
+        val eDeck = Cards.aiDecks[seed % Cards.aiDecks.size].map { Cards.get(it)!! }
         val b = Battle(pDeck, eDeck, rng)
         var next = 3f
         var plays = 0

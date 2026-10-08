@@ -7,7 +7,7 @@ enum class TargetType { GROUND, ANY, BUILDINGS }
 
 enum class Rarity { COMMON, RARE, EPIC }
 
-enum class ProjectileStyle { NONE, ARROW, SPEAR, BULLET, CANNONBALL, FIRE, BOMB, ORB, ZAP }
+enum class ProjectileStyle { NONE, ARROW, SPEAR, BULLET, CANNONBALL, FIRE, BOMB, ORB, ZAP, BEAM }
 
 /**
  * Static definition of a card. Distances are in arena tiles, times in seconds,
@@ -42,6 +42,18 @@ data class CardDef(
     val towerDamagePct: Float = 1f,
     val stun: Float = 0f,
     val spellSpeed: Float = 0f,
+    /** Spells: seconds enemy troops in the area are frozen solid. */
+    val freeze: Float = 0f,
+    /** Spells: hit only the N toughest enemies in the area (Lightning) instead of everything. */
+    val strikes: Int = 0,
+    /** Spawners: card id of the unit spawned, how often, and how many. */
+    val spawnId: String? = null,
+    val spawnEvery: Float = 0f,
+    val spawnCount: Int = 0,
+    /** Units spawned when this dies (Tombstone). */
+    val deathSpawnCount: Int = 0,
+    /** Damage ramps up to (1 + rampDamage)x after 4s on the same target (Inferno Tower). */
+    val rampDamage: Float = 0f,
 ) {
     val dps: Float get() = if (hitSpeed > 0f) damage / hitSpeed else 0f
     val isRanged: Boolean get() = range >= 2f
@@ -148,6 +160,26 @@ object Cards {
             radius = 0.35f, projectile = ProjectileStyle.SPEAR, projectileSpeed = 14f,
         ),
         CardDef(
+            "witch", "Witch", "🧙", 5, CardType.TROOP, Rarity.EPIC,
+            "Shoots splashing dark magic and summons three skeletons every 7 seconds.",
+            hp = 700, damage = 110, hitSpeed = 1.1f, range = 5f, speed = 1.0f, splash = 1f,
+            projectile = ProjectileStyle.ORB, projectileSpeed = 11f,
+            spawnId = "skeletons", spawnEvery = 7f, spawnCount = 3,
+        ),
+        CardDef(
+            "megaminion", "Mega Minion", "🦇", 3, CardType.TROOP, Rarity.RARE,
+            "A heavily armored flying minion that hits hard.",
+            hp = 700, damage = 250, hitSpeed = 1.6f, range = 1.6f, speed = 1.0f,
+            flying = true, radius = 0.5f, projectile = ProjectileStyle.ORB, projectileSpeed = 12f,
+        ),
+        CardDef(
+            "royalgiant", "Royal Giant", "👑", 6, CardType.TROOP, Rarity.EPIC,
+            "Fires his hand cannon at buildings from long range.",
+            hp = 2900, damage = 160, hitSpeed = 1.7f, range = 5f, sight = 7f, speed = 0.75f,
+            targets = TargetType.BUILDINGS, radius = 0.7f,
+            projectile = ProjectileStyle.CANNONBALL, projectileSpeed = 14f,
+        ),
+        CardDef(
             "fireball", "Fireball", "🔥", 4, CardType.SPELL, Rarity.RARE,
             "Big area damage. Deals reduced damage to towers.",
             damage = 600, spellRadius = 2.5f, towerDamagePct = 0.35f, spellSpeed = 11f,
@@ -163,6 +195,16 @@ object Cards {
             damage = 170, spellRadius = 2.5f, towerDamagePct = 0.35f, stun = 0.6f,
         ),
         CardDef(
+            "freeze", "Freeze", "❄️", 4, CardType.SPELL, Rarity.RARE,
+            "A snowy Christmas slows everything to a halt. Freezes enemy troops in the area for 4 seconds.",
+            damage = 0, spellRadius = 4f, towerDamagePct = 0f, freeze = 4f,
+        ),
+        CardDef(
+            "lightning", "Lightning", "🌩️", 6, CardType.SPELL, Rarity.EPIC,
+            "Strikes the three toughest enemies in the area, towers included.",
+            damage = 860, spellRadius = 3.5f, towerDamagePct = 0.3f, stun = 0.5f, strikes = 3,
+        ),
+        CardDef(
             "cannon", "Cannon", "💣", 3, CardType.BUILDING, Rarity.COMMON,
             "Defensive building that shoots ground units. Decays over time.",
             hp = 900, damage = 180, hitSpeed = 0.9f, range = 5.5f, sight = 5.5f,
@@ -174,6 +216,18 @@ object Cards {
             "Electric defense building that hits air and ground.",
             hp = 1000, damage = 200, hitSpeed = 1.1f, range = 5.5f, sight = 5.5f,
             radius = 0.9f, lifetime = 30f, projectile = ProjectileStyle.ZAP,
+        ),
+        CardDef(
+            "infernotower", "Inferno Tower", "🔥", 5, CardType.BUILDING, Rarity.RARE,
+            "Its beam burns hotter the longer it stays on one target. Melts tanks.",
+            hp = 1500, damage = 35, hitSpeed = 0.4f, range = 6f, sight = 6f,
+            radius = 0.9f, lifetime = 35f, projectile = ProjectileStyle.BEAM, rampDamage = 9f,
+        ),
+        CardDef(
+            "tombstone", "Tombstone", "🪦", 3, CardType.BUILDING, Rarity.RARE,
+            "Spawns a skeleton every 3 seconds, and four more when it's destroyed.",
+            hp = 500, damage = 0, targets = TargetType.GROUND, radius = 0.8f, lifetime = 40f,
+            spawnId = "skeletons", spawnEvery = 3f, spawnCount = 1, deathSpawnCount = 4,
         ),
     )
 
@@ -193,5 +247,7 @@ object Cards {
         listOf("hogrider", "wizard", "skeletons", "cannon", "arrows", "minipekka", "speargoblins", "babydragon"),
         listOf("pekka", "babydragon", "bomber", "goblins", "zap", "musketeer", "tesla", "barbarians"),
         listOf("giant", "wizard", "minipekka", "archers", "arrows", "fireball", "skeletons", "valkyrie"),
+        listOf("royalgiant", "witch", "megaminion", "tombstone", "lightning", "zap", "knight", "archers"),
+        listOf("hogrider", "infernotower", "freeze", "megaminion", "wizard", "goblins", "skeletons", "fireball"),
     )
 }

@@ -260,7 +260,26 @@ private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
     drawOval(color.copy(alpha = 0.35f), baseTl, baseSize)
     drawOval(color, baseTl, baseSize, style = Stroke(s * 0.06f))
 
-    Pen(this, fx, feetY, u, c.faceX).unit(id, color, poseOf(c, time))
+    val frozen = c.frozenTimer > 0f
+    Pen(this, fx, feetY, u, c.faceX).unit(id, color, if (frozen) Pose(time = 0f) else poseOf(c, time))
+    if (frozen) {
+        // Encased in ice: a translucent blue shell over the whole sprite with a few glints.
+        val top = feetY + spriteTop(id) * u
+        drawRoundRect(
+            Color(0x8870C8FF),
+            Offset(fx - u * 0.42f, top - u * 0.05f),
+            Size(u * 0.84f, feetY - top + u * 0.1f),
+            CornerRadius(u * 0.2f),
+        )
+        drawRoundRect(
+            Color(0xCCE1F5FE),
+            Offset(fx - u * 0.42f, top - u * 0.05f),
+            Size(u * 0.84f, feetY - top + u * 0.1f),
+            CornerRadius(u * 0.2f),
+            style = Stroke(s * 0.05f),
+        )
+        drawLine(Color.White, Offset(fx - u * 0.25f, top + u * 0.15f), Offset(fx - u * 0.1f, top + u * 0.35f), strokeWidth = s * 0.05f)
+    }
 
     if (c.hitFlash > 0f) {
         drawCircle(Color(0x66FFFFFF), u * 0.4f, Offset(fx, feetY - u * 0.5f))
@@ -278,7 +297,7 @@ private fun DrawScope.drawUnit(c: Combatant, t: ArenaTransform, time: Float) {
             style = Stroke(s * 0.07f),
         )
     }
-    if (c.stunTimer > 0f) {
+    if (c.stunTimer > 0f && !frozen) {
         Pen(this, fx + u * 0.3f, feetY + spriteTop(id) * u, s * 0.4f).spellIcon("zap", time)
     }
 }
@@ -499,18 +518,36 @@ private fun DrawScope.drawEffects(battle: Battle, t: ArenaTransform) {
                     style = Stroke(s * 0.12f * (1f - p * 0.5f), cap = StrokeCap.Round),
                 )
             }
+            EffectKind.FREEZE -> {
+                // Icy zone for the whole freeze, with the giant AC hovering above blowing snow.
+                val fade = ((e.duration - e.age) / 0.5f).coerceIn(0f, 1f) * (e.age / 0.2f).coerceIn(0f, 1f)
+                val r = e.radius * s
+                drawCircle(Color(0xFF81D4FA).copy(alpha = 0.28f * fade), r, center)
+                drawCircle(Color.White.copy(alpha = 0.8f * fade), r, center, style = Stroke(s * 0.07f, pathEffect = Dashed))
+                for (i in 0 until 14) {
+                    val ang = i * 2.4f
+                    val dist = (i % 5 + 1) / 6f * e.radius
+                    val drift = (e.age * 0.8f + i * 0.13f) % 1f
+                    val fx = center.x + cos(ang) * dist * s
+                    val fy = center.y + sin(ang) * dist * s * 0.7f - (1f - drift) * s * 1.2f
+                    drawCircle(Color.White.copy(alpha = 0.85f * fade), s * 0.07f, Offset(fx, fy))
+                }
+                val bob = sin(e.age * 3f) * s * 0.1f
+                Pen(this, center.x, center.y - s * 2.6f + bob, s * 1.8f, alpha = fade).spellIcon("freeze", e.age)
+            }
             EffectKind.LINE -> {
                 // Jagged lightning, re-jittered every frame so it crackles.
                 val a = Offset(t.sx(e.x), t.sy(e.y) - e.lift * s)
                 val b = Offset(t.sx(e.x2), t.sy(e.y2) - 0.4f * s)
                 var prev = a
                 val segs = 6
+                val w = if (e.radius > 0f) e.radius else 1f
                 for (i in 1..segs) {
                     val f = i / segs.toFloat()
                     val jitter = if (i == segs) 0f else (kotlin.random.Random.nextFloat() - 0.5f) * s * 0.6f
                     val next = Offset(a.x + (b.x - a.x) * f + jitter, a.y + (b.y - a.y) * f)
-                    drawLine(color.copy(alpha = 0.5f * (1f - p)), prev, next, strokeWidth = s * 0.22f, cap = StrokeCap.Round)
-                    drawLine(Color.White.copy(alpha = 1f - p), prev, next, strokeWidth = s * 0.08f, cap = StrokeCap.Round)
+                    drawLine(color.copy(alpha = 0.5f * (1f - p)), prev, next, strokeWidth = s * 0.22f * w, cap = StrokeCap.Round)
+                    drawLine(Color.White.copy(alpha = 1f - p), prev, next, strokeWidth = s * 0.08f * w, cap = StrokeCap.Round)
                     prev = next
                 }
             }
