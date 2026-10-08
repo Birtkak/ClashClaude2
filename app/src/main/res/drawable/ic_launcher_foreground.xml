@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two crossed golden swords over a crown, on a 108dp adaptive canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Crown -->
+    <path
+        android:fillColor="#FFFFC93C"
+        android:strokeColor="#FF8A5A00"
+        android:strokeWidth="2"
+        android:pathData="M34,66 L30,42 L43,52 L54,36 L65,52 L78,42 L74,66 Z" />
+    <path
+        android:fillColor="#FFE09A00"
+        android:pathData="M34,66 L74,66 L74,74 L34,74 Z" />
+    <path
+        android:fillColor="#FFFF4B4B"
+        android:pathData="M50,58 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+    <!-- Blade highlights -->
+    <path
+        android:fillColor="#FFE8EEF8"
+        android:strokeColor="#FF3A4A66"
+        android:strokeWidth="1.5"
+        android:pathData="M28,30 L31,27 L60,70 L57,73 Z" />
+    <path
+        android:fillColor="#FFE8EEF8"
+        android:strokeColor="#FF3A4A66"
+        android:strokeWidth="1.5"
+        android:pathData="M80,30 L77,27 L48,70 L51,73 Z" />
+</vector>
