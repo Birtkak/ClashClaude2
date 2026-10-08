@@ -26,15 +26,20 @@ def parse_cards():
             v = kv.get(key)
             return float(v.rstrip("f")) if v else default
 
+        # Defaults mirror CardDef's constructor defaults.
         card = {"id": cid, "name": name, "cost": int(cost), "type": typ.lower(), "rarity": rarity.lower(), "desc": desc}
         if typ == "SPELL":
-            card.update(damage=int(num("damage", 0)), radius=num("spellRadius"))
+            card.update(
+                damage=int(num("damage", 0)), spellRadius=num("spellRadius", 0),
+                towerDamagePct=round(num("towerDamagePct", 1) * 100), stun=num("stun", 0),
+            )
         else:
             card.update(
                 hp=int(num("hp", 0)), damage=int(num("damage", 0)), hitSpeed=num("hitSpeed", 1),
-                range=num("range", 0.5), count=int(num("count", 1)),
+                range=num("range", 0.5), count=int(num("count", 1)), speed=num("speed", 0),
+                splash=num("splash", 0), lifetime=num("lifetime", 0),
                 targets={"TargetType.GROUND": "ground", "TargetType.BUILDINGS": "buildings"}.get(kv.get("targets"), "air & ground"),
-                flying=kv.get("flying") == "true", splash=bool(num("splash", 0)), speed=num("speed", 0),
+                flying=kv.get("flying") == "true",
             )
         cards.append(card)
     return cards

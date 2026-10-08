@@ -32,3 +32,14 @@ https://claude.ai/artifact/BUm139CyGUeFVq3daoNyJw
   mechanic in `game/Battle.kt` with a unit test, and AI support if the card needs special handling.
 - After changing card stats, rebuild the forge page (`python3 tools/card-forge/build.py`) and republish
   `tools/card-forge/card-forge.html` to the URL above so its balance panel stays current.
+
+## Balance changes (Card Forge "Balance cards" tab)
+
+- Read with ArtifactData `list` on collection `balance`; one doc per card id:
+  `{cardId, name, changes: {field: newValue}, from: {field: oldValue}, note, status, updatedAt}`.
+- Fields map to `CardDef` in `Cards.kt` (`towerDamagePct` is stored as a percent, 35 = 0.35f).
+- To apply ("apply the balance changes"): edit `Cards.kt` for every `pending` doc, run tests + simulate,
+  then `python3 tools/card-forge/build.py`, `cd playtest && ../gradlew cardImages` (if costs changed),
+  republish `tools/card-forge/card-forge.html` with the `cards/<id>.png` files from
+  `playtest/build/card-images/` to the Card Forge URL, and set each doc's `status` to `applied`
+  (ArtifactData `update`, pinned with `if_version`).

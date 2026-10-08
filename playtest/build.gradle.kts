@@ -34,3 +34,12 @@ tasks.register<JavaExec>("simulate") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("SimulateKt")
 }
+
+/** Renders each card's in-game tile to build/card-images/<id>.png (used by the Card Forge page). */
+tasks.register<JavaExec>("cardImages") {
+    group = "playtest"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("CardImagesKt")
+    val out = layout.buildDirectory.dir("card-images")
+    args(out.get().asFile.absolutePath)
+}

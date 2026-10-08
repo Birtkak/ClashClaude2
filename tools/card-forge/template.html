@@ -173,6 +173,59 @@ button { font: inherit; cursor: pointer; }
 .empty { text-align: center; color: var(--dim); padding: 28px 12px; border: 2px dashed var(--line); border-radius: 12px; display: grid; gap: 6px; }
 .empty strong { font-family: var(--display); font-weight: 400; font-size: 19px; color: var(--text); }
 .notice { font-size: 13px; color: var(--question); }
+.panel-body { display: grid; gap: 22px; min-width: 0; }
+/* Tabs */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tab { font-family: var(--display); font-size: 18px; padding: 9px 18px; border-radius: 12px; border: 1.5px solid var(--line);
+  background: var(--panel); color: var(--dim); cursor: pointer; }
+.tab[aria-selected=true] { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); }
+.tab .count-badge { font-family: var(--body); font-weight: 800; font-size: 12px; background: var(--elixir); color: #fff; border-radius: 999px;
+  padding: 1px 7px; margin-left: 6px; vertical-align: 2px; }
+
+/* Balance lab */
+.lab { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 22px; align-items: start; }
+@media (max-width: 900px) { .lab { grid-template-columns: minmax(0, 1fr); } .editor { position: static !important; } }
+.picker { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.picker h3 { color: var(--dim); font-size: 15px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.tile { position: relative; border: 0; padding: 0; background: none; border-radius: 12px; display: grid; gap: 4px; text-align: center; color: var(--dim);
+  font-size: 12px; font-weight: 700; }
+.tile img { width: 100%; aspect-ratio: 0.78; border-radius: 10px; display: block; outline: 3px solid transparent; outline-offset: 1px; }
+.tile[aria-pressed=true] img { outline-color: var(--gold); }
+.tile .flag { position: absolute; top: -6px; right: -6px; border-radius: 999px; font-size: 10px; font-weight: 800; padding: 2px 6px;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.tile .flag.pending { background: var(--elixir); color: #fff; }
+.tile .flag.applied { background: var(--added); color: var(--night); }
+.editor { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.editor-head { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 12px; align-items: center; }
+.editor-head img { width: 78px; border-radius: 10px; display: block; }
+.editor-head p { color: var(--dim); font-size: 13px; }
+.stats { display: grid; gap: 8px; }
+.statrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; background: var(--night);
+  border-radius: 10px; padding: 8px 10px; }
+.statrow .name { font-weight: 800; font-size: 13px; }
+.statrow .was { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.stepper { display: flex; align-items: center; gap: 4px; grid-row: span 2; }
+.stepper button { width: 32px; height: 34px; border-radius: 9px; border: 1.5px solid var(--line); background: var(--raised); color: var(--text);
+  font-weight: 800; font-size: 17px; line-height: 1; }
+.stepper input { width: 84px; text-align: center; font-variant-numeric: tabular-nums; }
+.delta { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.delta.buff { color: var(--added); }
+.delta.nerf { color: var(--question); }
+.statrow.changed { box-shadow: inset 3px 0 0 var(--gold); }
+.derived { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.metric { background: var(--night); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 2px; }
+.metric span { font-size: 11px; font-weight: 800; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.metric b { font-family: var(--display); font-weight: 400; font-size: 20px; font-variant-numeric: tabular-nums; }
+.metric small { font-size: 12px; font-weight: 700; color: var(--dim); }
+.pending-list { display: grid; gap: 8px; }
+.pending-item { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; background: var(--night);
+  border-radius: 10px; padding: 8px; font-size: 13px; text-align: left; border: 1px solid var(--line); color: var(--text); }
+.pending-item img { width: 40px; border-radius: 6px; display: block; }
+.pending-item .meta { overflow-wrap: anywhere; }
+.compare-row img { width: 22px; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
@@ -188,6 +241,13 @@ button { font: inherit; cursor: pointer; }
       <span class="step"><b>4</b>Watch its status change below</span>
     </div>
   </header>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" id="tab-btn-new" aria-selected="true" aria-controls="tab-new">New card idea</button>
+    <button type="button" class="tab" role="tab" id="tab-btn-balance" aria-selected="false" aria-controls="tab-balance">Balance cards<span class="count-badge" id="pending-count" hidden></span></button>
+  </div>
+
+  <div id="tab-new" role="tabpanel" aria-labelledby="tab-btn-new" class="panel-body">
 
   <div class="bench">
     <form id="forge" novalidate>
@@ -348,6 +408,44 @@ button { font: inherit; cursor: pointer; }
       </div>
     </div>
   </section>
+  </div>
+
+  <div id="tab-balance" role="tabpanel" aria-labelledby="tab-btn-balance" class="panel-body" hidden>
+    <p class="lede">Pick a card, change its numbers, and save. Changes wait here as pending until you tell Claude “apply the balance changes”; then they go into the game and show as applied.</p>
+    <div class="lab">
+      <div class="picker">
+        <section class="pending-wrap" id="pending-wrap" hidden>
+          <h3>Pending changes</h3>
+          <div class="pending-list" id="pending-list"></div>
+        </section>
+        <h3>Troops</h3>
+        <div class="tiles" id="tiles-troop"></div>
+        <h3>Spells</h3>
+        <div class="tiles" id="tiles-spell"></div>
+        <h3>Buildings</h3>
+        <div class="tiles" id="tiles-building"></div>
+      </div>
+      <section class="editor" id="editor" aria-live="polite">
+        <div class="editor-head">
+          <img id="ed-img" alt="">
+          <div>
+            <h2 id="ed-name">Knight</h2>
+            <p id="ed-sub"></p>
+          </div>
+        </div>
+        <div class="stats" id="ed-stats"></div>
+        <div class="derived" id="ed-derived"></div>
+        <label>Why this change? <span class="hint">optional</span>
+          <textarea id="ed-note" maxlength="400" placeholder="e.g. Knight survives too long against Mini P.E.K.K.A."></textarea>
+        </label>
+        <div class="actions">
+          <button type="button" class="btn primary" id="ed-save">Save change</button>
+          <button type="button" class="btn ghost" id="ed-reset">Reset to game values</button>
+        </div>
+        <p class="status-line" id="ed-status" role="status"></p>
+      </section>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -519,10 +617,11 @@ function renderCompare(c) {
     const row = document.createElement("div");
     row.className = "compare-row";
     const name = document.createElement("span");
-    name.textContent = e.name + (e.count > 1 ? ` ×${e.count}` : "");
+    const thumb = document.createElement("img"); thumb.src = `cards/${e.id}.png`; thumb.alt = "";
+    name.append(thumb, e.name + (e.count > 1 ? ` ×${e.count}` : ""));
     const detail = document.createElement("span");
     detail.textContent = e.type === "spell"
-      ? `${e.damage} dmg · r${e.radius}`
+      ? `${e.damage} dmg · r${e.spellRadius}`
       : `${e.hp} HP · ${e.damage} dmg / ${e.hitSpeed}s`;
     row.append(name, detail);
     list.append(row);
@@ -695,10 +794,242 @@ function renderQueue() {
   }
 }
 
+// ---------------------------------------------------------------- tabs
+
+function showTab(which) {
+  const balance = which === "balance";
+  $("tab-new").hidden = balance;
+  $("tab-balance").hidden = !balance;
+  $("tab-btn-new").setAttribute("aria-selected", String(!balance));
+  $("tab-btn-balance").setAttribute("aria-selected", String(balance));
+  try { history.replaceState(null, "", balance ? "#balance" : "#new"); } catch {}
+}
+$("tab-btn-new").onclick = () => showTab("new");
+$("tab-btn-balance").onclick = () => showTab("balance");
+
+// ---------------------------------------------------------------- balance lab
+
+// Which stats each card type exposes. `better` says which direction is a buff.
+const FIELDS = {
+  cost:           { label: "Elixir cost",   step: 1,    min: 1,   max: 10,   better: "lower" },
+  count:          { label: "Units per card", step: 1,   min: 1,   max: 15,   better: "higher" },
+  hp:             { label: "Hitpoints",     step: 10,   min: 1,   unit: "per unit", better: "higher" },
+  damage:         { label: "Damage",        step: 5,    min: 0,   unit: "per hit",  better: "higher" },
+  hitSpeed:       { label: "Hit speed",     step: 0.1,  min: 0.1, unit: "s between hits", better: "lower" },
+  range:          { label: "Range",         step: 0.5,  min: 0.5, unit: "tiles", better: "higher" },
+  speed:          { label: "Move speed",    step: 0.05, min: 0.1, unit: "tiles/s", better: "higher" },
+  splash:         { label: "Splash radius", step: 0.1,  min: 0,   unit: "tiles", better: "higher" },
+  lifetime:       { label: "Lifetime",      step: 5,    min: 5,   unit: "s", better: "higher" },
+  spellRadius:    { label: "Radius",        step: 0.5,  min: 0.5, unit: "tiles", better: "higher" },
+  towerDamagePct: { label: "Tower damage",  step: 5,    min: 0,   max: 100, unit: "% of damage", better: "higher" },
+  stun:           { label: "Stun",          step: 0.1,  min: 0,   unit: "s", better: "higher" },
+};
+const FIELDS_BY_TYPE = {
+  troop: ["cost", "count", "hp", "damage", "hitSpeed", "range", "speed", "splash"],
+  building: ["cost", "hp", "damage", "hitSpeed", "range", "lifetime"],
+  spell: ["cost", "damage", "spellRadius", "towerDamagePct", "stun"],
+};
+
+let selectedId = EXISTING[0].id;
+let draft = {};              // field -> value being edited for the selected card
+let balanceDocs = {};        // cardId -> {data, id}
+
+const round = (v) => Math.round(v * 100) / 100;
+const fmt = (v) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2))));
+
+function savedChanges(id) {
+  const doc = balanceDocs[id];
+  return doc && doc.status === "pending" ? doc.changes || {} : {};
+}
+
+function effective(card, values) {
+  return { ...card, ...values };
+}
+
+function metrics(c) {
+  if (c.type === "spell") {
+    return [
+      ["Damage", c.damage],
+      ["Vs towers", Math.round(c.damage * c.towerDamagePct / 100)],
+      ["Damage / elixir", Math.round(c.damage / c.cost)],
+    ];
+  }
+  const dps = c.damage * (c.count || 1) / c.hitSpeed;
+  const totalHp = c.hp * (c.count || 1);
+  return [
+    ["DPS", Math.round(dps)],
+    ["Total HP", totalHp],
+    ["HP / elixir", Math.round(totalHp / c.cost)],
+    ["DPS / elixir", Math.round(dps / c.cost)],
+  ];
+}
+
+function renderTiles() {
+  for (const type of ["troop", "spell", "building"]) {
+    const box = $("tiles-" + type);
+    box.replaceChildren();
+    for (const card of EXISTING.filter((e) => e.type === type)) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "tile";
+      b.setAttribute("aria-pressed", String(card.id === selectedId));
+      const img = document.createElement("img"); img.src = `cards/${card.id}.png`; img.alt = "";
+      b.setAttribute("aria-label", card.name);
+      b.append(img);
+      const doc = balanceDocs[card.id];
+      if (doc && (doc.status === "pending" || doc.status === "applied")) {
+        const flag = document.createElement("span");
+        flag.className = "flag " + doc.status; flag.textContent = doc.status === "pending" ? "Pending" : "Applied";
+        b.append(flag);
+      }
+      b.onclick = () => selectCard(card.id);
+      box.append(b);
+    }
+  }
+}
+
+function selectCard(id) {
+  selectedId = id;
+  draft = { ...savedChanges(id) };
+  $("ed-note").value = balanceDocs[id]?.status === "pending" ? (balanceDocs[id].note || "") : "";
+  $("ed-status").textContent = "";
+  renderTiles();
+  renderEditor();
+  if (window.matchMedia("(max-width: 900px)").matches) $("editor").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderEditor() {
+  const card = EXISTING.find((e) => e.id === selectedId);
+  const cur = effective(card, draft);
+  $("ed-img").src = `cards/${card.id}.png`;
+  $("ed-name").textContent = card.name;
+  const typeName = { troop: "Troop", spell: "Spell", building: "Building" }[card.type];
+  $("ed-sub").textContent = `${card.rarity[0].toUpperCase()}${card.rarity.slice(1)} ${typeName} · ${card.desc}`;
+
+  const stats = $("ed-stats");
+  stats.replaceChildren();
+  for (const key of FIELDS_BY_TYPE[card.type]) {
+    const f = FIELDS[key];
+    const base = card[key];
+    const value = cur[key];
+    const row = document.createElement("div");
+    row.className = "statrow" + (value !== base ? " changed" : "");
+    const name = document.createElement("span"); name.className = "name"; name.textContent = f.label;
+    const stepper = document.createElement("div"); stepper.className = "stepper";
+    const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−"; minus.setAttribute("aria-label", `Lower ${f.label}`);
+    const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+"; plus.setAttribute("aria-label", `Raise ${f.label}`);
+    const input = document.createElement("input");
+    input.type = "number"; input.step = f.step; input.min = f.min ?? ""; if (f.max != null) input.max = f.max;
+    input.value = fmt(value); input.id = "stat-" + key; input.setAttribute("aria-label", f.label);
+    const setValue = (v) => {
+      if (Number.isNaN(v)) return;
+      v = Math.max(f.min ?? -Infinity, Math.min(f.max ?? Infinity, round(v)));
+      if (v === base) delete draft[key]; else draft[key] = v;
+      // Re-render on the next tick: a change event fires mid-blur, while the input is being detached.
+      setTimeout(() => {
+        renderEditor();
+        const again = $("stat-" + key); if (again) again.focus({ preventScroll: true });
+      });
+    };
+    minus.onclick = () => setValue(value - f.step);
+    plus.onclick = () => setValue(value + f.step);
+    input.onchange = () => setValue(Number(input.value));
+    stepper.append(minus, input, plus);
+    const was = document.createElement("span"); was.className = "was";
+    was.textContent = `In game: ${fmt(base)}${f.unit ? " " + f.unit : ""}`;
+    if (value !== base) {
+      const d = document.createElement("span");
+      const up = value > base;
+      const buff = f.better === "higher" ? up : !up;
+      d.className = "delta " + (buff ? "buff" : "nerf");
+      const pct = base ? ` (${up ? "+" : ""}${Math.round((value - base) / base * 100)}%)` : "";
+      d.textContent = `  ${buff ? "▲ buff" : "▼ nerf"}${pct}`;
+      was.append(d);
+    }
+    row.append(name, stepper, was);
+    stats.append(row);
+  }
+
+  const derived = $("ed-derived");
+  derived.replaceChildren();
+  const before = metrics(card);
+  const after = metrics(cur);
+  after.forEach(([label, v], i) => {
+    const m = document.createElement("div"); m.className = "metric";
+    const l = document.createElement("span"); l.textContent = label;
+    const b = document.createElement("b"); b.textContent = v;
+    m.append(l, b);
+    if (v !== before[i][1]) {
+      const s = document.createElement("small"); s.textContent = `was ${before[i][1]}`; m.append(s);
+    }
+    derived.append(m);
+  });
+
+  const changed = Object.keys(draft).length > 0;
+  const doc = balanceDocs[selectedId];
+  $("ed-save").textContent = changed ? "Save change" : (doc?.status === "pending" ? "Remove pending change" : "Save change");
+  $("ed-save").disabled = !db || (!changed && doc?.status !== "pending");
+  $("ed-reset").disabled = !changed;
+}
+
+$("ed-reset").onclick = () => { draft = {}; renderEditor(); };
+
+$("ed-save").onclick = async () => {
+  if (!db) { $("ed-status").textContent = "Sign in to claude.ai to save balance changes."; return; }
+  const card = EXISTING.find((e) => e.id === selectedId);
+  const changed = Object.keys(draft).length > 0;
+  $("ed-save").disabled = true;
+  try {
+    const ref = db.doc("balance/" + card.id);
+    if (!changed) {
+      await ref.delete();
+      $("ed-status").textContent = `Removed the pending change to ${card.name}.`;
+    } else {
+      const from = Object.fromEntries(Object.keys(draft).map((k) => [k, card[k]]));
+      await ref.set({
+        cardId: card.id, name: card.name, changes: { ...draft }, from, note: $("ed-note").value.trim(),
+        status: "pending", author: me, updatedAt: new Date().toISOString(),
+      });
+      $("ed-status").textContent = `Saved. Tell Claude “apply the balance changes” to put ${card.name}'s new stats in the game.`;
+    }
+  } catch (err) {
+    $("ed-status").textContent = err?.code === "invalid_argument" ? "You don't have permission to change balance here." : "Couldn't save just now. Try again in a moment.";
+  } finally {
+    renderEditor();
+  }
+};
+
+function describeChanges(doc) {
+  return Object.entries(doc.changes || {}).map(([k, v]) => `${FIELDS[k]?.label || k} ${fmt(doc.from?.[k] ?? 0)} → ${fmt(v)}`).join(", ");
+}
+
+function renderPending() {
+  const pending = Object.values(balanceDocs).filter((d) => d.status === "pending");
+  $("pending-wrap").hidden = pending.length === 0;
+  $("pending-count").hidden = pending.length === 0;
+  $("pending-count").textContent = pending.length;
+  const list = $("pending-list");
+  list.replaceChildren();
+  for (const d of pending) {
+    const item = document.createElement("button");
+    item.type = "button"; item.className = "pending-item";
+    const img = document.createElement("img"); img.src = `cards/${d.cardId}.png`; img.alt = "";
+    const text = document.createElement("div");
+    const b = document.createElement("b"); b.textContent = d.name;
+    const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = describeChanges(d);
+    text.append(b, meta);
+    item.append(img, text);
+    item.onclick = () => selectCard(d.cardId);
+    list.append(item);
+  }
+}
+
 // ---------------------------------------------------------------- boot
 
 syncType();
 loadDraft();
+if (location.hash === "#balance") showTab("balance");
+renderTiles();
+renderEditor();
 renderPreview();
 renderThumbs();
 
@@ -709,6 +1040,16 @@ renderThumbs();
   me = userNs ? await userNs.id() : null;
   if (!assets) { $("upload-off").hidden = false; $("pick").hidden = true; }
   if (!db) { $("db-off").hidden = false; return; }
+  renderEditor();
+  db.collection("balance").onSnapshot(
+    (snap) => {
+      balanceDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      // Keep an in-progress edit; otherwise show what's saved for the selected card.
+      if (!Object.keys(draft).length) draft = { ...savedChanges(selectedId) };
+      renderTiles(); renderPending(); renderEditor();
+    },
+    () => {},
+  );
   db.collection("concepts").orderBy("createdAt", "desc").onSnapshot(
     (snap) => { concepts = snap.docs; renderQueue(); },
     () => { $("db-off").textContent = "The forge queue stopped updating. Reload the page to reconnect."; $("db-off").hidden = false; },
