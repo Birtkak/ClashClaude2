@@ -237,6 +237,40 @@ class Battle(playerDeck: List<CardDef>, enemyDeck: List<CardDef>, val rng: Rando
         return entities.none { it.isTower && hypot(it.x - x, it.y - y) < it.radius }
     }
 
+    /**
+     * Snaps a drop point to the closest spot where [card] may be placed: troops dropped
+     * on the enemy side or in the river slide back to the edge of the deploy zone, and
+     * drops on top of a tower are pushed off it.
+     */
+    fun snapPlacement(team: Team, card: CardDef, x: Float, y: Float): Pair<Float, Float> {
+        var px = x.coerceIn(0.5f, Arena.WIDTH - 0.5f)
+        var py = y.coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+        if (card.type == CardType.SPELL) return px to py
+
+        val left = px < Arena.WIDTH / 2f
+        py = if (team == Team.PLAYER) {
+            max(py, if (princessAlive(Team.ENEMY, left)) Arena.RIVER_BOTTOM + 0.5f else 10f)
+        } else {
+            min(py, if (princessAlive(Team.PLAYER, left)) Arena.RIVER_TOP - 0.5f else 22f)
+        }
+        if (Arena.inRiver(py)) py = if (py < Arena.RIVER_MID) Arena.RIVER_TOP else Arena.RIVER_BOTTOM
+        for (t in entities) {
+            if (!t.isTower) continue
+            val dx = px - t.x
+            val dy = py - t.y
+            val d = hypot(dx, dy)
+            if (d >= t.radius) continue
+            val push = t.radius + 0.05f
+            if (d < 0.01f) {
+                py = t.y + if (team == Team.PLAYER) -push else push
+            } else {
+                px = t.x + dx / d * push
+                py = t.y + dy / d * push
+            }
+        }
+        return px.coerceIn(0.5f, Arena.WIDTH - 0.5f) to py.coerceIn(0.5f, Arena.HEIGHT - 0.5f)
+    }
+
     fun inDeployZone(team: Team, x: Float, y: Float): Boolean {
         val left = x < Arena.WIDTH / 2f
         return if (team == Team.PLAYER) {

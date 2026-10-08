@@ -95,6 +95,8 @@ fun BattleScreen(playerDeck: List<CardDef>, onFinished: (Outcome) -> Unit) {
     var dragIndex by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
     var confirmLeave by remember { mutableStateOf(false) }
+    // Short message shown over the arena, e.g. "Not enough elixir", until battle time `second`.
+    var notice by remember { mutableStateOf<Pair<String, Float>?>(null) }
     val transform = remember { ArenaTransform() }
     val cardOrigins = remember { Array(4) { Offset.Zero } }
 
@@ -113,19 +115,38 @@ fun BattleScreen(playerDeck: List<CardDef>, onFinished: (Outcome) -> Unit) {
 
     BackHandler(enabled = battle.outcome == null) { confirmLeave = true }
 
-    // Reading the frame counter recomposes the HUD every tick.
-    @Suppress("UNUSED_VARIABLE") val tick = frame
+    // Reading the frame counter recomposes this screen every tick. Child HUD composables
+    // get plain values (not the mutable Battle) so they aren't skipped as "unchanged".
+    if (frame < 0) return
 
-    fun tryDeploy(index: Int, rootPos: Offset): Boolean {
+    /** Arena tile under a root-space position, snapped to where [card] can go; null if off the arena. */
+    fun dropSpot(card: CardDef, rootPos: Offset): Pair<Float, Float>? {
         val local = rootPos - transform.originInRoot
         val wx = transform.worldX(local.x)
         val wy = transform.worldY(local.y)
-        return battle.deploy(Team.PLAYER, index, wx, wy)
+        if (wx < 0f || wx > Arena.WIDTH || wy < 0f || wy > Arena.HEIGHT) return null
+        return battle.snapPlacement(Team.PLAYER, card, wx, wy)
+    }
+
+    fun tryDeploy(index: Int, rootPos: Offset): Boolean {
+        val card = battle.player.hand.getOrNull(index) ?: return false
+        val (x, y) = dropSpot(card, rootPos) ?: return false
+        if (battle.player.elixir < card.cost) {
+            notice = "Not enough elixir!" to battle.time + 1.2f
+            return false
+        }
+        return battle.deploy(Team.PLAYER, index, x, y)
     }
 
     Box(Modifier.fillMaxSize().background(Palette.Night)) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
-            TopBar(battle)
+            TopBar(
+                timeLeft = battle.timeLeft,
+                overtime = battle.overtime,
+                doubleElixir = battle.doubleElixir,
+                enemyCrowns = battle.enemy.crowns,
+                playerCrowns = battle.player.crowns,
+            )
             Box(
                 Modifier
                     .weight(1f)
@@ -145,12 +166,30 @@ fun BattleScreen(playerDeck: List<CardDef>, onFinished: (Outcome) -> Unit) {
                         selected >= 0 -> battle.player.hand.getOrNull(selected)
                         else -> null
                     }
-                    val ghostPos = if (dragIndex >= 0) dragPos - transform.originInRoot else null
-                    drawBattle(battle, transform, ghostCard, ghostPos)
+                    val ghostSpot = if (dragIndex >= 0 && ghostCard != null) dropSpot(ghostCard, dragPos) else null
+                    drawBattle(battle, transform, ghostCard, ghostSpot)
+                }
+                notice?.let { (text, until) ->
+                    if (battle.time < until) {
+                        Text(
+                            text,
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 24.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(Palette.ElixirDark.copy(alpha = 0.9f))
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
             HandBar(
-                battle = battle,
+                hand = battle.player.hand.toList(),
+                next = battle.player.next,
+                elixir = battle.player.elixir,
                 selected = selected,
                 dragIndex = dragIndex,
                 onSelect = { selected = if (selected == it) -1 else it },
@@ -166,6 +205,7 @@ fun BattleScreen(playerDeck: List<CardDef>, onFinished: (Outcome) -> Unit) {
                     dragIndex = -1
                     if (i >= 0) tryDeploy(i, dragPos)
                 },
+                onDragCancel = { dragIndex = -1 },
             )
         }
 
@@ -194,7 +234,13 @@ fun BattleScreen(playerDeck: List<CardDef>, onFinished: (Outcome) -> Unit) {
 // ---------------------------------------------------------------------- HUD
 
 @Composable
-private fun TopBar(battle: Battle) {
+private fun TopBar(
+    timeLeft: Float,
+    overtime: Boolean,
+    doubleElixir: Boolean,
+    enemyCrowns: Int,
+    playerCrowns: Int,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -204,28 +250,28 @@ private fun TopBar(battle: Battle) {
     ) {
         Column(Modifier.weight(1f)) {
             Text("🤖 Claude Bot", color = Palette.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Crowns(battle.enemy.crowns)
+            Crowns(enemyCrowns)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val secs = ceil(battle.timeLeft).toInt()
+            val secs = ceil(timeLeft).toInt()
             Text(
-                if (battle.overtime) "Overtime" else "Time left",
+                if (overtime) "Overtime" else "Time left",
                 color = Palette.TextDim,
                 fontSize = 11.sp,
             )
             Text(
                 "%d:%02d".format(secs / 60, secs % 60),
-                color = if (battle.overtime) Palette.Gold else Color.White,
+                color = if (overtime) Palette.Gold else Color.White,
                 fontWeight = FontWeight.Black,
                 fontSize = 22.sp,
             )
-            if (battle.doubleElixir) {
+            if (doubleElixir) {
                 Text("x2 Elixir", color = Palette.Elixir, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
             Text("You 🙂", color = Palette.Blue, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Crowns(battle.player.crowns)
+            Crowns(playerCrowns)
         }
     }
 }
@@ -247,7 +293,9 @@ private fun Crowns(count: Int) {
 
 @Composable
 private fun HandBar(
-    battle: Battle,
+    hand: List<CardDef>,
+    next: CardDef?,
+    elixir: Float,
     selected: Int,
     dragIndex: Int,
     onSelect: (Int) -> Unit,
@@ -255,8 +303,8 @@ private fun HandBar(
     onDragStart: (Int, Offset) -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
-    val side = battle.player
     Column(
         Modifier
             .fillMaxWidth()
@@ -266,11 +314,11 @@ private fun HandBar(
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.weight(0.7f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Next", color = Palette.TextDim, fontSize = 11.sp)
-                side.next?.let { CardTile(it, showName = false, showCost = false, modifier = Modifier.fillMaxWidth()) }
+                next?.let { CardTile(it, showName = false, showCost = false, modifier = Modifier.fillMaxWidth()) }
             }
             for (i in 0 until 4) {
-                val card = side.hand[i]
-                val affordable = side.elixir >= card.cost
+                val card = hand[i]
+                val affordable = elixir >= card.cost
                 Box(
                     Modifier
                         .weight(1f)
@@ -284,7 +332,7 @@ private fun HandBar(
                                     onDrag(amount)
                                 },
                                 onDragEnd = onDragEnd,
-                                onDragCancel = onDragEnd,
+                                onDragCancel = onDragCancel,
                             )
                         }
                         .pointerInput(i) { detectTapGestures { onSelect(i) } },
@@ -299,7 +347,7 @@ private fun HandBar(
             }
         }
         Spacer(Modifier.height(6.dp))
-        ElixirBar(side.elixir)
+        ElixirBar(elixir)
     }
 }
 
@@ -421,7 +469,7 @@ private fun DrawScope.label(text: String, cx: Float, cy: Float, size: Float) {
     drawIntoCanvas { it.nativeCanvas.drawText(text, cx, baseline, labelPaint) }
 }
 
-private fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: CardDef?, ghostPos: Offset?) {
+private fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: CardDef?, ghostSpot: Pair<Float, Float>?) {
     t.scale = min(size.width / Arena.WIDTH, size.height / Arena.HEIGHT)
     t.ox = (size.width - Arena.WIDTH * t.scale) / 2f
     t.oy = (size.height - Arena.HEIGHT * t.scale) / 2f
@@ -565,18 +613,15 @@ private fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: CardD
     }
 
     // Drag ghost
-    if (ghost != null && ghostPos != null) {
-        val wx = t.worldX(ghostPos.x)
-        val wy = t.worldY(ghostPos.y)
-        val valid = battle.canPlace(Team.PLAYER, ghost, wx, wy)
+    if (ghost != null && ghostSpot != null) {
+        val (wx, wy) = ghostSpot
+        val pos = Offset(t.sx(wx), t.sy(wy))
+        val valid = battle.canPlace(Team.PLAYER, ghost, wx, wy) && battle.player.elixir >= ghost.cost
         val ring = if (ghost.type == CardType.SPELL) ghost.spellRadius else max(0.6f, ghost.radius + 0.3f)
-        drawCircle(
-            (if (valid) Color.White else Color.Red).copy(alpha = 0.3f),
-            ring * s,
-            ghostPos,
-        )
-        drawCircle(if (valid) Color.White else Color.Red, ring * s, ghostPos, style = Stroke(s * 0.06f))
-        emoji(ghost.emoji, ghostPos.x, ghostPos.y, s * 1.1f, alpha = 0.8f)
+        val color = if (valid) Color.White else Color(0xFFD43BFF)
+        drawCircle(color.copy(alpha = 0.3f), ring * s, pos)
+        drawCircle(color, ring * s, pos, style = Stroke(s * 0.06f))
+        emoji(ghost.emoji, pos.x, pos.y, s * 1.1f, alpha = 0.8f)
     }
 }
 

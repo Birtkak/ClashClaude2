@@ -41,6 +41,23 @@ https://github.com/Birtkak/ClashClaude2/releases/latest/download/ClashClaude.apk
 
 To install it, open the downloaded file and allow installs from that app when Android asks.
 
+## Testing and playtesting
+
+```
+./gradlew testDebugUnitTest            # engine unit tests (placement, elixir, cycling, full matches)
+./gradlew lintDebug                    # Android lint
+cd playtest && ../gradlew screenshots  # scripted playthrough of the real screens -> playtest/build/playtest/*.png
+cd playtest && ../gradlew simulate     # 40 headless matches of the AI vs a random bot, with sanity checks
+```
+
+`playtest/` is a separate desktop build (not part of the app). It compiles the app's
+`data`, `game` and `ui` sources against Compose Desktop, with small stand-ins for the few
+Android-only APIs. That lets the battle screen run headlessly: it taps and drags cards
+and saves screenshots, without needing an emulator.
+
+`.claude/hooks/session-start.sh` installs the Android SDK at the start of Claude Code
+cloud sessions, so `./gradlew assembleDebug` works there too.
+
 ## Code layout
 
 ```
