@@ -46,7 +46,9 @@ object Sprites {
 
     fun image(name: String): ImageBitmap? {
         val load = loader ?: return null
-        return cache.getOrPut(name) { runCatching { load(name) }.getOrNull() }
+        // Missing images are remembered as null too, so they aren't retried every frame.
+        if (name in cache) return cache[name]
+        return runCatching { load(name) }.getOrNull().also { cache[name] = it }
     }
 
     fun sheet(id: String): SpriteSheet? = SpriteManifest[id]

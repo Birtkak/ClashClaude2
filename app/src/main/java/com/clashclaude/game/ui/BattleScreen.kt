@@ -64,7 +64,18 @@ import com.clashclaude.game.game.Match
 import com.clashclaude.game.game.Outcome
 import com.clashclaude.game.game.Sfx
 import com.clashclaude.game.game.Team
+import kotlinx.coroutines.delay
 import kotlin.math.ceil
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.sin
 
 @Composable
 fun BattleScreen(
@@ -91,6 +102,11 @@ fun BattleScreen(
     var confirmLeave by remember { mutableStateOf(false) }
     // Short message shown over the arena, e.g. "Not enough elixir", until battle time `second`.
     var notice by remember { mutableStateOf<Pair<String, Float>?>(null) }
+    // Big announcement ("2x Elixir!", "Overtime!") and the battle time it appeared.
+    var banner by remember { mutableStateOf<Pair<String, Float>?>(null) }
+    // Screen shake strength (0..1), kicked by big impacts and decaying quickly.
+    var shake by remember { mutableFloatStateOf(0f) }
+    val costPopups = remember { ArrayList<CostPopup>() }
     val transform = remember { ArenaTransform(viewer) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     val cardOrigins = remember { Array(4) { Offset.Zero } }
@@ -106,16 +122,25 @@ fun BattleScreen(
         )
         audio.music(true)
         var fastMusic = false
+        var wasOvertime = false
         var last = withFrameNanos { it }
         while (battle.outcome == null) {
             withFrameNanos { now ->
                 val dt = ((now - last) / 1_000_000_000f).coerceIn(0f, 0.1f)
                 last = now
                 transform.alpha = match.advance(dt)
-                battle.drainSounds().forEach(audio::play)
+                val sounds = battle.drainSounds()
+                sounds.forEach(audio::play)
+                for (sfx in sounds) shake = max(shake, impact(sfx))
+                shake = max(0f, shake - dt * 2.5f)
                 if (battle.doubleElixir != fastMusic) {
                     fastMusic = battle.doubleElixir
                     audio.music(true, fast = fastMusic)
+                    if (fastMusic && !battle.overtime) banner = "2x Elixir!" to battle.time
+                }
+                if (battle.overtime && !wasOvertime) {
+                    wasOvertime = true
+                    banner = "Overtime!" to battle.time
                 }
                 frame++
             }
@@ -171,6 +196,8 @@ fun BattleScreen(
             return false
         }
         match.send(Command.PlayCard(viewer, card.id, x, y))
+        costPopups.removeAll { battle.time - it.start > COST_POPUP_SECONDS }
+        costPopups += CostPopup(x, y, card.cost, battle.time)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         return true
     }
@@ -223,7 +250,15 @@ fun BattleScreen(
                         }
                     },
             ) {
-                Canvas(Modifier.fillMaxSize()) {
+                Canvas(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val a = shake * shake * 12.dp.toPx()
+                            translationX = a * sin(frame * 1.9f)
+                            translationY = a * cos(frame * 2.7f)
+                        },
+                ) {
                     if (frame < 0) return@Canvas // Read the tick so the arena redraws every frame.
                     val dragged = me.hand.getOrNull(dragIndex)
                     val ghost = dragged?.let { card ->
@@ -236,6 +271,29 @@ fun BattleScreen(
                         }
                     }
                     drawBattle(battle, transform, ghost, armed = dragged ?: me.hand.getOrNull(selected))
+                    drawCostPopups(costPopups, transform, battle.time)
+                }
+                banner?.let { (text, start) ->
+                    val age = battle.time - start
+                    if (age < BANNER_SECONDS) Announcement(text, age, Modifier.align(Alignment.Center))
+                }
+                // Final countdown: each second's number thumps in and settles.
+                val left = battle.timeLeft
+                if (battle.outcome == null && left in 0.01f..10f) {
+                    val frac = left - floor(left)
+                    OutlinedText(
+                        ceil(left).toInt().toString(),
+                        fontSize = 96.sp,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                val k = 1f + 0.5f * frac * frac * frac
+                                scaleX = k
+                                scaleY = k
+                                alpha = 0.35f + 0.5f * frac
+                            },
+                    )
                 }
                 notice?.let { (text, until) ->
                     if (battle.time < until) {
@@ -257,6 +315,7 @@ fun BattleScreen(
                 hand = me.hand.toList(),
                 next = me.next,
                 elixir = me.elixir,
+                time = battle.time,
                 selected = selected,
                 dragIndex = dragIndex,
                 onSelect = {
@@ -317,6 +376,35 @@ fun BattleScreen(
 
 // ---------------------------------------------------------------------- HUD
 
+private const val BANNER_SECONDS = 2f
+
+/** How hard a sound's event shakes the screen (0 = not at all). */
+private fun impact(sfx: Sfx): Float = when (sfx) {
+    Sfx.TOWER_DOWN -> 1f
+    Sfx.BIG_EXPLOSION -> 0.7f
+    Sfx.LAND_HEAVY -> 0.3f
+    Sfx.EXPLOSION -> 0.25f
+    else -> 0f
+}
+
+/** A big announcement that slams in, holds, and fades. [age] is seconds since it appeared. */
+@Composable
+private fun Announcement(text: String, age: Float, modifier: Modifier) {
+    val slam = (age / 0.25f).coerceIn(0f, 1f)
+    val k = 2.2f - 1.2f * (1f - (1f - slam) * (1f - slam))
+    val fade = ((BANNER_SECONDS - age) / 0.4f).coerceIn(0f, 1f)
+    OutlinedText(
+        text,
+        fontSize = 46.sp,
+        color = Palette.Gold,
+        modifier = modifier.graphicsLayer {
+            scaleX = k
+            scaleY = k
+            alpha = fade * slam.coerceAtLeast(0.2f)
+        },
+    )
+}
+
 private val Ink = Color(0xFF0B1324)
 
 @Composable
@@ -375,8 +463,14 @@ private fun Crowns(count: Int, color: Color) {
     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(3) { i ->
             val won = i < count
+            // A crown that's just been won bounces in.
+            val pop by animateFloatAsState(if (won) 1f else 0.8f, spring(dampingRatio = 0.3f, stiffness = 260f), label = "crown")
             Box(
                 Modifier
+                    .graphicsLayer {
+                        scaleX = pop
+                        scaleY = pop
+                    }
                     .size(22.dp)
                     .clip(CircleShape)
                     .background(if (won) color else Color(0xFF26324A))
@@ -392,6 +486,8 @@ private fun Crowns(count: Int, color: Color) {
 @Composable
 private fun HandBar(
     hand: List<CardDef>,
+    /** Battle time, for the elixir bar's animations. */
+    time: Float,
     next: CardDef?,
     elixir: Float,
     selected: Int,
@@ -420,10 +516,20 @@ private fun HandBar(
                 val affordable = elixir >= card.cost
                 // The picked-up card pops up out of the hand.
                 val lift by animateDpAsState(if (i == selected) (-16).dp else 0.dp, label = "card-lift")
+                // A newly drawn card springs into its slot.
+                val appear = remember(card.id) { Animatable(0f) }
+                LaunchedEffect(card.id) { appear.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f)) }
                 Box(
                     Modifier
                         .weight(1f)
                         .offset(y = lift)
+                        .graphicsLayer {
+                            val a = appear.value
+                            scaleX = 0.55f + 0.45f * a
+                            scaleY = 0.55f + 0.45f * a
+                            alpha = a.coerceIn(0f, 1f)
+                            translationY = (1f - a) * 40.dp.toPx()
+                        }
                         .onGloballyPositioned { onCardPositioned(i, it.positionInRoot()) }
                         .testTag("hand-$i")
                         .pointerInput(i) {
@@ -449,16 +555,29 @@ private fun HandBar(
             }
         }
         Spacer(Modifier.height(6.dp))
-        ElixirBar(elixir)
+        ElixirBar(elixir, time)
     }
 }
 
 @Composable
-private fun ElixirBar(elixir: Float) {
+private fun ElixirBar(elixir: Float, time: Float) {
+    val full = elixir >= Battle.MAX_ELIXIR
+    // The drop pops each time a whole point fills, and pulses while elixir is full (and wasted).
+    val frac = elixir - floor(elixir)
+    val pop = when {
+        full -> 1f + 0.08f * sin(time * 7f)
+        frac < 0.12f -> 1f + 0.25f * (1f - frac / 0.12f)
+        else -> 1f
+    }
+    val glow = if (full) (sin(time * 7f) + 1f) / 2f else 0f
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Elixir drop with the whole-number count.
         Box(
             Modifier
+                .graphicsLayer {
+                    scaleX = pop
+                    scaleY = pop
+                }
                 .size(34.dp)
                 .clip(CircleShape)
                 .background(Brush.radialGradient(listOf(Color(0xFFF3B6FF), Palette.Elixir, Palette.ElixirDark)))
@@ -474,7 +593,7 @@ private fun ElixirBar(elixir: Float) {
                 .height(22.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF241534))
-                .border(2.5.dp, Ink, RoundedCornerShape(8.dp)),
+                .border(2.5.dp, lerp(Ink, Palette.Gold, glow), RoundedCornerShape(8.dp)),
         ) {
             Box(
                 Modifier
@@ -505,28 +624,72 @@ private fun ElixirBar(elixir: Float) {
 
 @Composable
 private fun ResultOverlay(outcome: Outcome, myCrowns: Int, theirCrowns: Int, onOk: () -> Unit) {
+    // The panel slams in, then each side's crowns pop in one by one.
+    val enter = remember { Animatable(0f) }
+    var shownMine by remember { mutableIntStateOf(0) }
+    var shownTheirs by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        enter.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 300f))
+        repeat(myCrowns) { delay(280); shownMine++ }
+        repeat(theirCrowns) { delay(280); shownTheirs++ }
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xC0000000))
+            .background(Color(0xC0000000).copy(alpha = 0.75f * enter.value.coerceIn(0f, 1f)))
             .pointerInput(Unit) { detectTapGestures { } },
         contentAlignment = Alignment.Center,
     ) {
-        ChunkyPanel(Modifier.width(280.dp), tint = if (outcome == Outcome.WIN) Color(0xFF2A4C86) else Color(0xFF5A2A3A)) {
+        ChunkyPanel(
+            Modifier
+                .width(290.dp)
+                .graphicsLayer {
+                    val k = 0.4f + 0.6f * enter.value
+                    scaleX = k
+                    scaleY = k
+                    alpha = enter.value.coerceIn(0f, 1f)
+                },
+            tint = if (outcome == Outcome.WIN) Color(0xFF2A4C86) else Color(0xFF5A2A3A),
+        ) {
             val (title, color) = when (outcome) {
                 Outcome.WIN -> "VICTORY!" to Palette.Gold
                 Outcome.LOSS -> "DEFEAT" to Palette.Red
                 Outcome.DRAW -> "DRAW" to Color.White
             }
-            OutlinedText(title, fontSize = 44.sp, color = color, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedText("$myCrowns", fontSize = 38.sp, color = Palette.Blue)
-                Text("  👑  ", fontSize = 28.sp)
-                OutlinedText("$theirCrowns", fontSize = 38.sp, color = Palette.Red)
-            }
+            OutlinedText(title, fontSize = 46.sp, color = color, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Spacer(Modifier.height(12.dp))
+            ResultCrowns("You", shownMine, Palette.Blue)
+            Spacer(Modifier.height(8.dp))
+            ResultCrowns("Opponent", shownTheirs, Palette.Red)
             Spacer(Modifier.height(18.dp))
             ChunkyButton("OK", onOk, Modifier.fillMaxWidth(), color = ChunkyColor.GOLD, fontSize = 24.sp)
+        }
+    }
+}
+
+/** A row of three big crowns for one side; earned ones bounce in as [won] counts up. */
+@Composable
+private fun ResultCrowns(label: String, won: Int, color: Color) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedText(label, fontSize = 18.sp, color = color, modifier = Modifier.weight(1f))
+        repeat(3) { i ->
+            val on = i < won
+            val pop by animateFloatAsState(if (on) 1f else 0.75f, spring(dampingRatio = 0.3f, stiffness = 300f), label = "result-crown")
+            Box(
+                Modifier
+                    .padding(start = 6.dp)
+                    .graphicsLayer {
+                        scaleX = pop
+                        scaleY = pop
+                    }
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(if (on) color else Color(0xFF26324A))
+                    .border(2.5.dp, Ink, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("👑", fontSize = 20.sp, modifier = Modifier.alpha(if (on) 1f else 0.25f))
+            }
         }
     }
 }

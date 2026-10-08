@@ -11,7 +11,11 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.IntOffset
@@ -48,6 +52,10 @@ class ArenaTransform(val viewer: Team = Team.PLAYER) {
     var ox = 0f
     var oy = 0f
     var originInRoot = Offset.Zero
+
+    /** The pre-drawn static ground and the size/orientation it was drawn for. */
+    internal var groundCache: ImageBitmap? = null
+    internal var groundKey = ""
 
     /** How far (0..1) this frame is from the previous simulation tick to the current one. */
     var alpha = 1f
@@ -160,9 +168,8 @@ private fun DrawScope.drawPicture(name: String, cx: Float, cy: Float, w: Float, 
 fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed: CardDef?) {
     t.fit(size.width, size.height)
     val s = t.scale
-    drawRect(Brush.verticalGradient(listOf(HedgeDark, Hedge, HedgeDark)), Offset.Zero, size)
-
-    drawGround(battle, t)
+    drawCachedGround(t)
+    drawRipples(battle, t)
 
     // Red overlay where troops can't go while a troop/building card is being placed.
     if (armed != null && armed.type != CardType.SPELL) {
@@ -203,9 +210,46 @@ fun DrawScope.drawBattle(battle: Battle, t: ArenaTransform, ghost: Ghost?, armed
     ghost?.let { drawGhost(battle, it, t) }
 }
 
-private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
+/**
+ * The static ground (grass, paths, grid, river bed, bridges, scenery) only changes with the
+ * screen size, so it is drawn once into an image and reused every frame.
+ */
+private fun DrawScope.drawCachedGround(t: ArenaTransform) {
+    val w = size.width.toInt()
+    val h = size.height.toInt()
+    if (w <= 0 || h <= 0) return
+    // Until the scenery sprites are decoded, draw directly so they aren't missing from the cache.
+    val ready = Sprites.loader == null || Scenery.all { Sprites.image(it.first + "_blue") != null }
+    if (!ready) {
+        drawStaticGround(t)
+        return
+    }
+    val key = "$w x $h ${t.flipped} ${t.scale}"
+    val cached = t.groundCache
+    if (cached == null || t.groundKey != key) {
+        val img = ImageBitmap(w, h)
+        CanvasDrawScope().draw(Density(density, fontScale), layoutDirection, Canvas(img), size) { drawStaticGround(t) }
+        t.groundCache = img
+        t.groundKey = key
+    }
+    drawImage(t.groundCache!!)
+}
+
+/** Moving ripples on the river, drawn over the cached ground but not over the bridges. */
+private fun DrawScope.drawRipples(battle: Battle, t: ArenaTransform) {
+    val wave = (battle.time * 0.6f) % 2f
+    for (i in 0 until 10) {
+        val wx = (i * 2f + wave) % (Arena.WIDTH - 0.8f)
+        if (Arena.BRIDGES.any { wx + 0.8f > it - Arena.BRIDGE_HALF_WIDTH && wx < it + Arena.BRIDGE_HALF_WIDTH }) continue
+        val wy = Arena.RIVER_MID - 0.15f + (i % 2) * 0.5f
+        drawLine(RiverLight, Offset(t.sx(wx), t.sy(wy)), Offset(t.sx(wx + 0.8f), t.sy(wy)), strokeWidth = t.scale * 0.07f, cap = StrokeCap.Round)
+    }
+}
+
+private fun DrawScope.drawStaticGround(t: ArenaTransform) {
     val s = t.scale
     val d = t.depth
+    drawRect(Brush.verticalGradient(listOf(HedgeDark, Hedge, HedgeDark)), Offset.Zero, size)
     // Earth edge along the near side gives the arena some thickness.
     drawRect(Bank, Offset(t.ox, t.oy + Arena.HEIGHT * d), Size(Arena.WIDTH * s, t.rise * 0.45f))
     for (ty in 0 until Arena.HEIGHT.toInt()) {
@@ -240,13 +284,6 @@ private fun DrawScope.drawGround(battle: Battle, t: ArenaTransform) {
     val riverH = (Arena.RIVER_BOTTOM - Arena.RIVER_TOP) * d
     drawRect(Brush.verticalGradient(listOf(RiverDeep, River), riverTl.y, riverTl.y + riverH), riverTl, Size(Arena.WIDTH * s, riverH))
     drawRect(Bank, riverTl, Size(Arena.WIDTH * s, t.rise * 0.28f))
-    val wave = (battle.time * 0.6f) % 2f
-    for (i in 0 until 10) {
-        val wx = (i * 2f + wave) % (Arena.WIDTH - 0.8f)
-        val wy = Arena.RIVER_MID - 0.15f + (i % 2) * 0.5f
-        drawLine(RiverLight, Offset(t.sx(wx), t.sy(wy)), Offset(t.sx(wx + 0.8f), t.sy(wy)), strokeWidth = s * 0.07f, cap = StrokeCap.Round)
-    }
-
     drawScenery(t)
 
     // Bridges: plank decks with a little thickness and side rails.
@@ -674,3 +711,19 @@ private fun DrawScope.drawGhost(battle: Battle, g: Ghost, t: ArenaTransform) {
         )
     }
 }
+
+/** The elixir a placed card cost, floating up from where it was placed. */
+class CostPopup(val x: Float, val y: Float, val cost: Int, val start: Float)
+
+fun DrawScope.drawCostPopups(popups: List<CostPopup>, t: ArenaTransform, time: Float) {
+    for (p in popups) {
+        val age = time - p.start
+        if (age !in 0f..COST_POPUP_SECONDS) continue
+        val f = age / COST_POPUP_SECONDS
+        val alpha = (1f - f * f).coerceIn(0f, 1f)
+        val color = ((alpha * 255).toInt() shl 24) or 0xF3B6FF
+        label("-${p.cost}", t.sx(p.x), t.sy(p.y) - (1.2f + 1.6f * f) * t.rise, t.scale * (1.2f - 0.3f * f), color)
+    }
+}
+
+const val COST_POPUP_SECONDS = 1.1f

@@ -137,6 +137,7 @@ fun main(args: Array<String>) {
     // The same fight seen by the other side (as a multiplayer opponent would): their units at the bottom, in blue.
     stagedFight(out, density, com.clashclaude.game.game.Team.ENEMY, "07b-flipped")
     stagedNewCards(out, density)
+    stagedEndgame(out, density)
 
     val deck = Cards.defaultDecks[0].mapNotNull { Cards.get(it) }
     val battle = ImageComposeScene(W, H, density) { ClashTheme(DisplayFont) { BattleScreen(deck) {} } }
@@ -254,5 +255,32 @@ private fun stagedNewCards(out: File, density: Density) {
     battle.entities.firstOrNull { it.team == E && it.card?.id == "wizard" }?.hp = 0f
     d.wait(0.2f)
     d.screenshot("08-new-cards-4-death")
+    scene.close()
+}
+
+/** Late-game moments: the 2x elixir banner, the final countdown and the victory screen. */
+private fun stagedEndgame(out: File, density: Density) {
+    val deck = Cards.defaultDecks[0].mapNotNull { Cards.get(it) }
+    val battle = com.clashclaude.game.game.Battle(deck, deck, kotlin.random.Random(3))
+    fun skipTo(t: Float) {
+        while (battle.time < t) {
+            battle.enemy.elixir = 0f
+            battle.update(0.5f)
+        }
+    }
+    val scene = ImageComposeScene(W, H, density) { ClashTheme(DisplayFont) { BattleScreen(deck, initialBattle = battle) {} } }
+    val d = Driver(scene, out)
+    d.wait(0.2f)
+    skipTo(119.8f)
+    d.wait(0.5f)
+    d.screenshot("09-endgame-1-double-elixir")
+    skipTo(173f)
+    d.wait(0.6f)
+    d.screenshot("09-endgame-2-countdown")
+    battle.entities.first { it.team == com.clashclaude.game.game.Team.ENEMY && it.kind == com.clashclaude.game.game.Kind.PRINCESS_TOWER }.hp = 0f
+    d.wait(0.3f)
+    battle.entities.first { it.team == com.clashclaude.game.game.Team.ENEMY && it.kind == com.clashclaude.game.game.Kind.KING_TOWER }.hp = 0f
+    d.wait(2.5f)
+    d.screenshot("09-endgame-3-victory")
     scene.close()
 }
