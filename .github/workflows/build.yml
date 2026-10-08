@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,3 +27,19 @@ jobs:
         with:
           name: clash-claude-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Publish each pushed build as a release so the newest APK is always at
+      # https://github.com/<owner>/<repo>/releases/latest/download/ClashClaude.apk
+      - name: Rename APK
+        if: github.event_name != 'pull_request'
+        run: cp app/build/outputs/apk/debug/app-debug.apk ClashClaude.apk
+
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          body: "Debug APK built from ${{ github.ref_name }} @ ${{ github.sha }}"
+          files: ClashClaude.apk
+          make_latest: true

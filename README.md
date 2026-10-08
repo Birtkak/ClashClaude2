@@ -35,7 +35,11 @@ Open the project in Android Studio and press **Run**, or from the command line:
 
 The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-Every push also builds the APK on GitHub Actions. To get it, open the **Actions** tab, pick the latest **Build APK** run, and download the `clash-claude-debug-apk` artifact. To install it on a phone, you'll need to allow installs from unknown sources.
+Every push also builds the APK on GitHub Actions and publishes it as a release. Download the newest build on your phone from:
+
+https://github.com/Birtkak/ClashClaude2/releases/latest/download/ClashClaude.apk
+
+To install it, open the downloaded file and allow installs from that app when Android asks.
 
 ## Code layout
 
